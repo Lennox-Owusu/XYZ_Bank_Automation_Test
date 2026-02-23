@@ -30,35 +30,33 @@ jobs:
     - name: Display Chrome version
       run: google-chrome --version
     
+    - name: Record start time
+      id: start_time
+      run: echo "start_time=$(date +%s)" >> $GITHUB_OUTPUT
+    
     - name: Run tests
       id: tests
       run: mvn clean test
       continue-on-error: true
     
+    - name: Calculate execution time
+      if: always()
+      id: execution_time
+      run: |
+        END_TIME=$(date +%s)
+        START_TIME=${{ steps.start_time.outputs.start_time }}
+        DURATION=$((END_TIME - START_TIME))
+        MINUTES=$((DURATION / 60))
+        SECONDS=$((DURATION % 60))
+        
+        echo "duration_seconds=$DURATION" >> $GITHUB_OUTPUT
+        echo "duration_formatted=${MINUTES}m ${SECONDS}s" >> $GITHUB_OUTPUT
+        echo "Execution time: ${MINUTES}m ${SECONDS}s"
+    
     - name: Generate Allure Report
       if: always()
       run: mvn allure:report
       continue-on-error: true
-    
-    - name: Debug - List test results
-      if: always()
-      run: |
-        echo "=== Surefire Reports Directory ==="
-        ls -la target/surefire-reports/ 2>/dev/null || echo "Directory not found"
-        echo ""
-        echo "=== Looking for TestNG results ==="
-        find target/surefire-reports -name "*.xml" 2>/dev/null || echo "No XML files found"
-        echo ""
-        if [ -f target/surefire-reports/testng-results.xml ]; then
-          echo "=== TestNG Results Content ==="
-          head -20 target/surefire-reports/testng-results.xml
-        else
-          echo "testng-results.xml not found"
-        fi
-        if [ -f target/surefire-reports/TEST-TestSuite.xml ]; then
-          echo "=== TEST-TestSuite.xml Content (first 30 lines) ==="
-          head -30 target/surefire-reports/TEST-TestSuite.xml
-        fi
     
     - name: Get test results summary
       if: always()
@@ -80,7 +78,7 @@ jobs:
           ERRORS=$(grep -oP 'errors="\K[0-9]+' target/surefire-reports/TEST-TestSuite.xml | head -1)
           SKIPPED=$(grep -oP 'skipped="\K[0-9]+' target/surefire-reports/TEST-TestSuite.xml | head -1)
           
-          # Calculate passed (total - failures - errors)
+          # Calculate passed
           TOTAL=${TOTAL:-0}
           FAILURES=${FAILURES:-0}
           ERRORS=${ERRORS:-0}
@@ -89,18 +87,11 @@ jobs:
           FAILED=$((FAILURES + ERRORS))
           PASSED=$((TOTAL - FAILED - SKIPPED))
           
-          echo "Parsed from TEST-TestSuite.xml:"
-          echo "  Total: $TOTAL"
-          echo "  Failures: $FAILURES"
-          echo "  Errors: $ERRORS"
-          echo "  Skipped: $SKIPPED"
-          echo "  Calculated Passed: $PASSED"
-          echo "  Calculated Failed: $FAILED"
+          echo "Parsed results: Total=$TOTAL, Passed=$PASSED, Failed=$FAILED, Skipped=$SKIPPED"
           
         elif [ -f target/surefire-reports/testng-results.xml ]; then
           echo "Found testng-results.xml, parsing..."
           
-          # Parse TestNG format
           TOTAL=$(grep -oP 'total="\K[0-9]+' target/surefire-reports/testng-results.xml | head -1)
           PASSED=$(grep -oP 'passed="\K[0-9]+' target/surefire-reports/testng-results.xml | head -1)
           FAILED=$(grep -oP 'failed="\K[0-9]+' target/surefire-reports/testng-results.xml | head -1)
@@ -110,57 +101,87 @@ jobs:
           PASSED=${PASSED:-0}
           FAILED=${FAILED:-0}
           SKIPPED=${SKIPPED:-0}
-          
-        else
-          echo "No test results XML found"
         fi
         
-        echo ""
-        echo "Final values: Total=$TOTAL, Passed=$PASSED, Failed=$FAILED, Skipped=$SKIPPED"
+        # Calculate pass rate
+        if [ "$TOTAL" -gt 0 ]; then
+          PASS_RATE=$((PASSED * 100 / TOTAL))
+        else
+          PASS_RATE=0
+        fi
+        
+        echo "Pass Rate: ${PASS_RATE}%"
         
         # Write to GitHub output
         echo "total=$TOTAL" >> $GITHUB_OUTPUT
         echo "passed=$PASSED" >> $GITHUB_OUTPUT
         echo "failed=$FAILED" >> $GITHUB_OUTPUT
         echo "skipped=$SKIPPED" >> $GITHUB_OUTPUT
+        echo "pass_rate=$PASS_RATE" >> $GITHUB_OUTPUT
         
-        # Determine status
+        # Determine status and emoji
         if [ "$FAILED" -gt 0 ]; then
           echo "status=FAILED" >> $GITHUB_OUTPUT
           echo "status_emoji=🔴" >> $GITHUB_OUTPUT
-          echo "Status: FAILED (has failures)"
+          echo "status_color=#ef4444" >> $GITHUB_OUTPUT
         elif [ "$TOTAL" -eq 0 ]; then
           echo "status=NO TESTS" >> $GITHUB_OUTPUT
           echo "status_emoji=⚠️" >> $GITHUB_OUTPUT
-          echo "Status: NO TESTS (no tests found)"
+          echo "status_color=#f59e0b" >> $GITHUB_OUTPUT
         else
           echo "status=PASSED" >> $GITHUB_OUTPUT
           echo "status_emoji=✅" >> $GITHUB_OUTPUT
-          echo "Status: PASSED"
+          echo "status_color=#10b981" >> $GITHUB_OUTPUT
         fi
     
     - name: Extract failed test details
       if: always()
       id: failed_tests
       run: |
-        FAILED_DETAILS=""
+        echo "Extracting failed test details..."
         
-        if [ -d target/surefire-reports ]; then
-          if ls target/surefire-reports/*.txt 1> /dev/null 2>&1; then
-            FAILED_DETAILS=$(grep -A 5 "FAILED" target/surefire-reports/*.txt 2>/dev/null | head -20 || echo "No failure details found")
+        FAILED_LIST=""
+        FAILED_COUNT=0
+        
+        if [ -f target/surefire-reports/TestSuite.txt ]; then
+          # Extract failed test names
+          FAILED_LIST=$(grep "FAILED" target/surefire-reports/TestSuite.txt | sed 's/.*FAILED: //' | head -10)
+          FAILED_COUNT=$(echo "$FAILED_LIST" | grep -c "." || echo "0")
+          
+          echo "Found $FAILED_COUNT failed tests"
+          
+          # Format for Slack
+          FAILED_SLACK=""
+          if [ -n "$FAILED_LIST" ]; then
+            while IFS= read -r line; do
+              if [ -n "$line" ]; then
+                FAILED_SLACK="${FAILED_SLACK}• ${line}\n"
+              fi
+            done <<< "$FAILED_LIST"
           fi
           
-          echo "$FAILED_DETAILS" > failed_tests.txt
-          
-          FAILED_TESTS_SLACK=$(echo "$FAILED_DETAILS" | head -c 1500)
-          FAILED_TESTS_SLACK=$(echo "$FAILED_TESTS_SLACK" | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
-          
-          echo "failed_details<<EOF" >> $GITHUB_OUTPUT
-          echo "$FAILED_TESTS_SLACK" >> $GITHUB_OUTPUT
+          # Save for later use
+          echo "failed_list<<EOF" >> $GITHUB_OUTPUT
+          echo "$FAILED_SLACK" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
+          
+          echo "failed_count=$FAILED_COUNT" >> $GITHUB_OUTPUT
+        else
+          echo "failed_list=" >> $GITHUB_OUTPUT
+          echo "failed_count=0" >> $GITHUB_OUTPUT
         fi
     
-    - name: Send Slack notification
+    - name: Get environment info
+      if: always()
+      id: env_info
+      run: |
+        CHROME_VERSION=$(google-chrome --version | cut -d' ' -f3)
+        JAVA_VERSION=$(java -version 2>&1 | head -1 | cut -d'"' -f2)
+        
+        echo "chrome_version=$CHROME_VERSION" >> $GITHUB_OUTPUT
+        echo "java_version=$JAVA_VERSION" >> $GITHUB_OUTPUT
+    
+    - name: Send Enhanced Slack notification
       if: always()
       uses: slackapi/slack-github-action@v1.25.0
       with:
@@ -184,17 +205,20 @@ jobs:
                   },
                   {
                     "type": "mrkdwn",
+                    "text": "*Pass Rate:*\n${{ steps.test_summary.outputs.pass_rate }}%"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Duration:*\n⏱️ ${{ steps.execution_time.outputs.duration_formatted }}"
+                  },
+                  {
+                    "type": "mrkdwn",
                     "text": "*Branch:*\n`${{ github.ref_name }}`"
-                  },
-                  {
-                    "type": "mrkdwn",
-                    "text": "*Triggered by:*\n${{ github.actor }}"
-                  },
-                  {
-                    "type": "mrkdwn",
-                    "text": "*Event:*\n${{ github.event_name }}"
                   }
                 ]
+              },
+              {
+                "type": "divider"
               },
               {
                 "type": "section",
@@ -224,22 +248,96 @@ jobs:
                   }
                 ]
               },
+              ${{ steps.test_summary.outputs.failed > 0 && format('{{
+                "type": "divider"
+              }},
+              {{
+                "type": "section",
+                "text": {{
+                  "type": "mrkdwn",
+                  "text": "*❌ Failed Tests ({0}):*\n{1}"
+                }}
+              }}', steps.failed_tests.outputs.failed_count, steps.failed_tests.outputs.failed_list) || '' }}
+              {
+                "type": "divider"
+              },
               {
                 "type": "section",
                 "text": {
                   "type": "mrkdwn",
-                  "text": "*🔗 Links*\n• <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Workflow Run>\n• <${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|View Commit>"
+                  "text": "*🔧 Environment Details*"
                 }
               },
               {
+                "type": "section",
+                "fields": [
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Chrome:*\n${{ steps.env_info.outputs.chrome_version }}"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Java:*\n${{ steps.env_info.outputs.java_version }}"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*OS:*\nUbuntu Latest"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Triggered by:*\n${{ github.actor }}"
+                  }
+                ]
+              },
+              {
                 "type": "divider"
+              },
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "*🔗 Quick Links*"
+                }
+              },
+              {
+                "type": "actions",
+                "elements": [
+                  {
+                    "type": "button",
+                    "text": {
+                      "type": "plain_text",
+                      "text": "📊 View Workflow",
+                      "emoji": true
+                    },
+                    "url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+                    "style": "primary"
+                  },
+                  {
+                    "type": "button",
+                    "text": {
+                      "type": "plain_text",
+                      "text": "📝 View Commit",
+                      "emoji": true
+                    },
+                    "url": "${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}"
+                  },
+                  {
+                    "type": "button",
+                    "text": {
+                      "type": "plain_text",
+                      "text": "📂 Repository",
+                      "emoji": true
+                    },
+                    "url": "${{ github.server_url }}/${{ github.repository }}"
+                  }
+                ]
               },
               {
                 "type": "context",
                 "elements": [
                   {
                     "type": "mrkdwn",
-                    "text": "Repository: *${{ github.repository }}* | Run #${{ github.run_number }} | ${{ github.event.head_commit.message }}"
+                    "text": "🏦 *XYZ Bank Automation* | Run #${{ github.run_number }} | ${{ github.event.head_commit.message }}"
                   }
                 ]
               }
@@ -249,7 +347,7 @@ jobs:
         SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
     
-    - name: Send Gmail notification
+    - name: Send Enhanced Gmail notification
       if: always()
       uses: dawidd6/action-send-mail@v3
       with:
@@ -257,7 +355,7 @@ jobs:
         server_port: 587
         username: ${{ secrets.GMAIL_USERNAME }}
         password: ${{ secrets.GMAIL_APP_PASSWORD }}
-        subject: "${{ steps.test_summary.outputs.status_emoji }} XYZ Bank Test Report - ${{ steps.test_summary.outputs.status }}"
+        subject: "${{ steps.test_summary.outputs.status_emoji }} XYZ Bank Test Report - ${{ steps.test_summary.outputs.status }} (${{ steps.test_summary.outputs.pass_rate }}% Pass Rate)"
         to: ${{ secrets.GMAIL_RECIPIENT }}
         from: ${{ secrets.GMAIL_USERNAME }}
         html_body: |
@@ -274,7 +372,7 @@ jobs:
                 background-color: #f5f5f5;
               }
               .container { 
-                max-width: 600px; 
+                max-width: 650px; 
                 margin: 20px auto; 
                 background: white;
                 border-radius: 12px;
@@ -288,9 +386,14 @@ jobs:
                 text-align: center;
               }
               .header h1 {
-                margin: 0;
+                margin: 0 0 10px 0;
                 font-size: 28px;
                 font-weight: 600;
+              }
+              .header .subtitle {
+                font-size: 14px;
+                opacity: 0.9;
+                margin: 5px 0;
               }
               .status-badge { 
                 display: inline-block; 
@@ -308,12 +411,18 @@ jobs:
                 padding: 30px;
               }
               .section-title {
-                font-size: 20px;
+                font-size: 18px;
                 font-weight: 600;
                 color: #1f2937;
                 margin: 25px 0 15px 0;
                 padding-bottom: 10px;
                 border-bottom: 2px solid #e5e7eb;
+                display: flex;
+                align-items: center;
+              }
+              .section-title .emoji {
+                margin-right: 8px;
+                font-size: 20px;
               }
               .metrics { 
                 display: grid; 
@@ -322,23 +431,48 @@ jobs:
                 margin: 20px 0;
               }
               .metric-card { 
-                background: #f9fafb;
+                background: linear-gradient(135deg, #f9fafb 0%, #ffffff 100%);
                 padding: 20px; 
                 border-radius: 10px;
                 border: 1px solid #e5e7eb;
                 text-align: center;
+                transition: transform 0.2s;
               }
               .metric-value { 
                 font-size: 36px; 
                 font-weight: bold; 
-                color: #667eea;
                 margin-bottom: 5px;
               }
+              .metric-value.total { color: #667eea; }
+              .metric-value.passed { color: #10b981; }
+              .metric-value.failed { color: #ef4444; }
+              .metric-value.skipped { color: #f59e0b; }
               .metric-label { 
                 color: #6b7280; 
-                font-size: 13px;
+                font-size: 12px;
                 text-transform: uppercase;
                 letter-spacing: 0.5px;
+                font-weight: 600;
+              }
+              .pass-rate-bar {
+                width: 100%;
+                height: 30px;
+                background: #e5e7eb;
+                border-radius: 15px;
+                overflow: hidden;
+                margin: 15px 0;
+                position: relative;
+              }
+              .pass-rate-fill {
+                height: 100%;
+                background: linear-gradient(90deg, #10b981 0%, #059669 100%);
+                transition: width 0.5s ease;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                color: white;
+                font-weight: bold;
+                font-size: 14px;
               }
               .details { 
                 background: #f9fafb;
@@ -364,7 +498,36 @@ jobs:
               .info-value { 
                 color: #111827;
                 font-family: 'Courier New', monospace;
+                font-size: 13px;
+                text-align: right;
+                max-width: 60%;
+                word-break: break-word;
+              }
+              .failed-tests {
+                background: #fef2f2;
+                border-left: 4px solid #ef4444;
+                padding: 15px;
+                margin: 15px 0;
+                border-radius: 4px;
+              }
+              .failed-tests h4 {
+                margin: 0 0 10px 0;
+                color: #991b1b;
                 font-size: 14px;
+              }
+              .failed-tests ul {
+                margin: 0;
+                padding-left: 20px;
+              }
+              .failed-tests li {
+                color: #7f1d1d;
+                font-size: 13px;
+                margin: 5px 0;
+                font-family: 'Courier New', monospace;
+              }
+              .button-container {
+                text-align: center;
+                margin: 25px 0;
               }
               .button { 
                 display: inline-block; 
@@ -373,12 +536,19 @@ jobs:
                 padding: 14px 32px; 
                 text-decoration: none; 
                 border-radius: 8px; 
-                margin-top: 25px;
+                margin: 5px;
                 font-weight: 600;
+                font-size: 14px;
                 transition: background 0.3s;
               }
               .button:hover {
                 background: #5568d3;
+              }
+              .button.secondary {
+                background: #6b7280;
+              }
+              .button.secondary:hover {
+                background: #4b5563;
               }
               .footer { 
                 text-align: center; 
@@ -388,44 +558,97 @@ jobs:
                 color: #6b7280; 
                 font-size: 12px;
               }
-              .emoji {
-                font-size: 24px;
-                margin-right: 8px;
+              .highlight-box {
+                background: #eff6ff;
+                border: 1px solid #3b82f6;
+                border-radius: 8px;
+                padding: 15px;
+                margin: 15px 0;
+              }
+              .highlight-box strong {
+                color: #1e40af;
               }
             </style>
           </head>
           <body>
             <div class="container">
               <div class="header">
-                <h1><span class="emoji">🏦</span>XYZ Bank Test Automation</h1>
+                <h1>🏦 XYZ Bank Test Automation</h1>
+                <div class="subtitle">Automated Test Execution Report</div>
                 <div class="status-badge status-${{ steps.test_summary.outputs.status == 'PASSED' && 'passed' || steps.test_summary.outputs.status == 'FAILED' && 'failed' || 'error' }}">
                   ${{ steps.test_summary.outputs.status }}
                 </div>
+                <div class="subtitle">⏱️ Execution Time: ${{ steps.execution_time.outputs.duration_formatted }}</div>
               </div>
               
               <div class="content">
-                <div class="section-title">📊 Test Execution Summary</div>
+                <div class="section-title">
+                  <span class="emoji">📊</span>
+                  Test Execution Summary
+                </div>
+                
+                <div class="highlight-box">
+                  <strong>Pass Rate: ${{ steps.test_summary.outputs.pass_rate }}%</strong>
+                  <div class="pass-rate-bar">
+                    <div class="pass-rate-fill" style="width: ${{ steps.test_summary.outputs.pass_rate }}%;">
+                      ${{ steps.test_summary.outputs.pass_rate }}%
+                    </div>
+                  </div>
+                </div>
                 
                 <div class="metrics">
                   <div class="metric-card">
-                    <div class="metric-value">${{ steps.test_summary.outputs.total }}</div>
+                    <div class="metric-value total">${{ steps.test_summary.outputs.total }}</div>
                     <div class="metric-label">Total Tests</div>
                   </div>
                   <div class="metric-card">
-                    <div class="metric-value" style="color: #10b981;">${{ steps.test_summary.outputs.passed }}</div>
+                    <div class="metric-value passed">${{ steps.test_summary.outputs.passed }}</div>
                     <div class="metric-label">✅ Passed</div>
                   </div>
                   <div class="metric-card">
-                    <div class="metric-value" style="color: #ef4444;">${{ steps.test_summary.outputs.failed }}</div>
+                    <div class="metric-value failed">${{ steps.test_summary.outputs.failed }}</div>
                     <div class="metric-label">❌ Failed</div>
                   </div>
                   <div class="metric-card">
-                    <div class="metric-value" style="color: #f59e0b;">${{ steps.test_summary.outputs.skipped }}</div>
+                    <div class="metric-value skipped">${{ steps.test_summary.outputs.skipped }}</div>
                     <div class="metric-label">⏭️ Skipped</div>
                   </div>
                 </div>
                 
-                <div class="section-title">📋 Execution Details</div>
+                ${{ steps.test_summary.outputs.failed > 0 && format('<div class="failed-tests">
+                  <h4>❌ Failed Tests ({0}):</h4>
+                  <ul>
+                    {1}
+                  </ul>
+                </div>', steps.failed_tests.outputs.failed_count, steps.failed_tests.outputs.failed_list) || '' }}
+                
+                <div class="section-title">
+                  <span class="emoji">🔧</span>
+                  Environment Details
+                </div>
+                <div class="details">
+                  <div class="info-row">
+                    <span class="info-label">Chrome Version</span>
+                    <span class="info-value">${{ steps.env_info.outputs.chrome_version }}</span>
+                  </div>
+                  <div class="info-row">
+                    <span class="info-label">Java Version</span>
+                    <span class="info-value">${{ steps.env_info.outputs.java_version }}</span>
+                  </div>
+                  <div class="info-row">
+                    <span class="info-label">Operating System</span>
+                    <span class="info-value">Ubuntu Latest (GitHub Actions)</span>
+                  </div>
+                  <div class="info-row">
+                    <span class="info-label">Execution Duration</span>
+                    <span class="info-value">${{ steps.execution_time.outputs.duration_formatted }}</span>
+                  </div>
+                </div>
+                
+                <div class="section-title">
+                  <span class="emoji">📋</span>
+                  Execution Details
+                </div>
                 <div class="details">
                   <div class="info-row">
                     <span class="info-label">Repository</span>
@@ -436,11 +659,11 @@ jobs:
                     <span class="info-value">${{ github.ref_name }}</span>
                   </div>
                   <div class="info-row">
-                    <span class="info-label">Commit</span>
+                    <span class="info-label">Commit SHA</span>
                     <span class="info-value">${{ github.sha }}</span>
                   </div>
                   <div class="info-row">
-                    <span class="info-label">Triggered by</span>
+                    <span class="info-label">Triggered By</span>
                     <span class="info-value">${{ github.actor }}</span>
                   </div>
                   <div class="info-row">
@@ -457,9 +680,12 @@ jobs:
                   </div>
                 </div>
                 
-                <div style="text-align: center;">
+                <div class="button-container">
                   <a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" class="button">
-                    📊 View Full Report on GitHub
+                    📊 View Full Workflow
+                  </a>
+                  <a href="${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}" class="button secondary">
+                    📝 View Commit
                   </a>
                 </div>
                 
