@@ -32,61 +32,120 @@ jobs:
     
     - name: Run tests
       id: tests
-      run: |
-        mvn clean test
-        echo "test_result=$?" >> $GITHUB_OUTPUT
+      run: mvn clean test
       continue-on-error: true
     
     - name: Generate Allure Report
       if: always()
       run: mvn allure:report
+      continue-on-error: true
+    
+    - name: Debug - List test results
+      if: always()
+      run: |
+        echo "=== Surefire Reports Directory ==="
+        ls -la target/surefire-reports/ 2>/dev/null || echo "Directory not found"
+        echo ""
+        echo "=== Looking for TestNG results ==="
+        find target/surefire-reports -name "*.xml" 2>/dev/null || echo "No XML files found"
+        echo ""
+        if [ -f target/surefire-reports/testng-results.xml ]; then
+          echo "=== TestNG Results Content ==="
+          head -20 target/surefire-reports/testng-results.xml
+        else
+          echo "testng-results.xml not found"
+        fi
     
     - name: Get test results summary
       if: always()
       id: test_summary
       run: |
-        # Extract test results from surefire reports
+        # Initialize variables
+        TOTAL=0
+        PASSED=0
+        FAILED=0
+        SKIPPED=0
+        
+        # Try to find and parse testng-results.xml
         if [ -f target/surefire-reports/testng-results.xml ]; then
-          TOTAL=$(grep -oP 'total="\K[0-9]+' target/surefire-reports/testng-results.xml | head -1)
-          PASSED=$(grep -oP 'passed="\K[0-9]+' target/surefire-reports/testng-results.xml | head -1)
-          FAILED=$(grep -oP 'failed="\K[0-9]+' target/surefire-reports/testng-results.xml | head -1)
-          SKIPPED=$(grep -oP 'skipped="\K[0-9]+' target/surefire-reports/testng-results.xml | head -1)
+          echo "Parsing testng-results.xml..."
           
-          echo "total=$TOTAL" >> $GITHUB_OUTPUT
-          echo "passed=$PASSED" >> $GITHUB_OUTPUT
-          echo "failed=$FAILED" >> $GITHUB_OUTPUT
-          echo "skipped=$SKIPPED" >> $GITHUB_OUTPUT
+          # Extract values using grep and sed
+          TOTAL=$(grep -oP 'total="\K[0-9]+' target/surefire-reports/testng-results.xml 2>/dev/null | head -1 || echo "0")
+          PASSED=$(grep -oP 'passed="\K[0-9]+' target/surefire-reports/testng-results.xml 2>/dev/null | head -1 || echo "0")
+          FAILED=$(grep -oP 'failed="\K[0-9]+' target/surefire-reports/testng-results.xml 2>/dev/null | head -1 || echo "0")
+          SKIPPED=$(grep -oP 'skipped="\K[0-9]+' target/surefire-reports/testng-results.xml 2>/dev/null | head -1 || echo "0")
           
-          if [ "$FAILED" -gt 0 ]; then
-            echo "status=FAILED" >> $GITHUB_OUTPUT
-            echo "status_emoji=🔴" >> $GITHUB_OUTPUT
-          else
-            echo "status=PASSED" >> $GITHUB_OUTPUT
-            echo "status_emoji=✅" >> $GITHUB_OUTPUT
-          fi
+          echo "Extracted: Total=$TOTAL, Passed=$PASSED, Failed=$FAILED, Skipped=$SKIPPED"
         else
-          echo "status=ERROR" >> $GITHUB_OUTPUT
+          echo "testng-results.xml not found, checking for alternative sources..."
+          
+          # Try to count from surefire text reports
+          if [ -d target/surefire-reports ]; then
+            TXT_FILES=$(find target/surefire-reports -name "*.txt" 2>/dev/null | wc -l)
+            if [ "$TXT_FILES" -gt 0 ]; then
+              echo "Found $TXT_FILES test report files"
+              # This is a fallback - adjust as needed
+              TOTAL=$TXT_FILES
+              PASSED=$(grep -l "PASSED" target/surefire-reports/*.txt 2>/dev/null | wc -l || echo "0")
+              FAILED=$(grep -l "FAILED" target/surefire-reports/*.txt 2>/dev/null | wc -l || echo "0")
+            fi
+          fi
+        fi
+        
+        # Ensure we have valid numbers
+        TOTAL=${TOTAL:-0}
+        PASSED=${PASSED:-0}
+        FAILED=${FAILED:-0}
+        SKIPPED=${SKIPPED:-0}
+        
+        echo "Final values: Total=$TOTAL, Passed=$PASSED, Failed=$FAILED, Skipped=$SKIPPED"
+        
+        # Write to GitHub output
+        echo "total=$TOTAL" >> $GITHUB_OUTPUT
+        echo "passed=$PASSED" >> $GITHUB_OUTPUT
+        echo "failed=$FAILED" >> $GITHUB_OUTPUT
+        echo "skipped=$SKIPPED" >> $GITHUB_OUTPUT
+        
+        # Determine status
+        if [ "$FAILED" -gt 0 ]; then
+          echo "status=FAILED" >> $GITHUB_OUTPUT
+          echo "status_emoji=🔴" >> $GITHUB_OUTPUT
+          echo "Status: FAILED (has failures)"
+        elif [ "$TOTAL" -eq 0 ]; then
+          echo "status=NO TESTS" >> $GITHUB_OUTPUT
           echo "status_emoji=⚠️" >> $GITHUB_OUTPUT
-          echo "total=0" >> $GITHUB_OUTPUT
-          echo "passed=0" >> $GITHUB_OUTPUT
-          echo "failed=0" >> $GITHUB_OUTPUT
-          echo "skipped=0" >> $GITHUB_OUTPUT
+          echo "Status: NO TESTS (no tests found)"
+        else
+          echo "status=PASSED" >> $GITHUB_OUTPUT
+          echo "status_emoji=✅" >> $GITHUB_OUTPUT
+          echo "Status: PASSED"
         fi
     
     - name: Extract failed test details
       if: always()
       id: failed_tests
       run: |
+        FAILED_DETAILS=""
+        
         if [ -d target/surefire-reports ]; then
-          # Find failed tests
-          FAILED_TESTS=$(grep -r "FAILED" target/surefire-reports/*.txt 2>/dev/null | head -10 || echo "No failed tests found")
+          # Look for failed tests in text reports
+          if ls target/surefire-reports/*.txt 1> /dev/null 2>&1; then
+            FAILED_DETAILS=$(grep -A 5 "FAILED" target/surefire-reports/*.txt 2>/dev/null | head -20 || echo "No failure details found")
+          fi
           
-          # Save to file for email
-          echo "$FAILED_TESTS" > failed_tests.txt
+          # Save to file
+          echo "$FAILED_DETAILS" > failed_tests.txt
           
-          # Format for Slack (escape special characters)
-          FAILED_TESTS_SLACK=$(echo "$FAILED_TESTS" | sed 's/"/\\"/g' | head -c 2000)
-          echo "failed_tests_slack=$FAILED_TESTS_SLACK" >> $GITHUB_OUTPUT
+          # Format for Slack (truncate if too long)
+          FAILED_TESTS_SLACK=$(echo "$FAILED_DETAILS" | head -c 1500)
+          
+          # Escape for JSON
+          FAILED_TESTS_SLACK=$(echo "$FAILED_TESTS_SLACK" | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
+          
+          echo "failed_details<<EOF" >> $GITHUB_OUTPUT
+          echo "$FAILED_TESTS_SLACK" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
         fi
     
     - name: Send Slack notification
@@ -113,17 +172,24 @@ jobs:
                   },
                   {
                     "type": "mrkdwn",
-                    "text": "*Branch:*\n${{ github.ref_name }}"
+                    "text": "*Branch:*\n`${{ github.ref_name }}`"
                   },
                   {
                     "type": "mrkdwn",
-                    "text": "*Commit:*\n${{ github.sha }}"
+                    "text": "*Triggered by:*\n${{ github.actor }}"
                   },
                   {
                     "type": "mrkdwn",
-                    "text": "*Author:*\n${{ github.actor }}"
+                    "text": "*Event:*\n${{ github.event_name }}"
                   }
                 ]
+              },
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "*📊 Test Results Summary*"
+                }
               },
               {
                 "type": "section",
@@ -150,7 +216,7 @@ jobs:
                 "type": "section",
                 "text": {
                   "type": "mrkdwn",
-                  "text": "*Workflow Run:*\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Details>"
+                  "text": "*🔗 Links*\n• <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Workflow Run>\n• <${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|View Commit>"
                 }
               },
               {
@@ -161,7 +227,7 @@ jobs:
                 "elements": [
                   {
                     "type": "mrkdwn",
-                    "text": "Repository: *${{ github.repository }}* | Triggered by: *${{ github.event_name }}*"
+                    "text": "Repository: *${{ github.repository }}* | Run #${{ github.run_number }} | ${{ github.event.head_commit.message }}"
                   }
                 ]
               }
@@ -187,39 +253,146 @@ jobs:
           <html>
           <head>
             <style>
-              body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-              .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-              .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
-              .status-badge { display: inline-block; padding: 10px 20px; border-radius: 20px; font-weight: bold; margin: 10px 0; }
+              body { 
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+                line-height: 1.6; 
+                color: #333;
+                margin: 0;
+                padding: 0;
+                background-color: #f5f5f5;
+              }
+              .container { 
+                max-width: 600px; 
+                margin: 20px auto; 
+                background: white;
+                border-radius: 12px;
+                overflow: hidden;
+                box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+              }
+              .header { 
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                color: white; 
+                padding: 40px 30px; 
+                text-align: center;
+              }
+              .header h1 {
+                margin: 0;
+                font-size: 28px;
+                font-weight: 600;
+              }
+              .status-badge { 
+                display: inline-block; 
+                padding: 12px 24px; 
+                border-radius: 25px; 
+                font-weight: bold; 
+                margin: 15px 0;
+                font-size: 16px;
+                letter-spacing: 0.5px;
+              }
               .status-passed { background-color: #10b981; color: white; }
               .status-failed { background-color: #ef4444; color: white; }
-              .content { background: #f9fafb; padding: 30px; border-radius: 0 0 10px 10px; }
-              .metrics { display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin: 20px 0; }
-              .metric-card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-              .metric-value { font-size: 32px; font-weight: bold; color: #667eea; }
-              .metric-label { color: #6b7280; font-size: 14px; margin-top: 5px; }
-              .details { background: white; padding: 20px; border-radius: 8px; margin-top: 20px; }
-              .details h3 { color: #374151; margin-top: 0; }
-              .info-row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #e5e7eb; }
-              .info-label { font-weight: bold; color: #6b7280; }
-              .info-value { color: #111827; }
-              .button { display: inline-block; background: #667eea; color: white; padding: 12px 30px; text-decoration: none; border-radius: 6px; margin-top: 20px; }
-              .footer { text-align: center; margin-top: 30px; color: #6b7280; font-size: 12px; }
-              .failed-tests { background: #fef2f2; border-left: 4px solid #ef4444; padding: 15px; margin-top: 15px; }
-              .failed-tests pre { background: white; padding: 10px; border-radius: 4px; overflow-x: auto; font-size: 12px; }
+              .status-error { background-color: #f59e0b; color: white; }
+              .content { 
+                padding: 30px;
+              }
+              .section-title {
+                font-size: 20px;
+                font-weight: 600;
+                color: #1f2937;
+                margin: 25px 0 15px 0;
+                padding-bottom: 10px;
+                border-bottom: 2px solid #e5e7eb;
+              }
+              .metrics { 
+                display: grid; 
+                grid-template-columns: repeat(2, 1fr); 
+                gap: 15px; 
+                margin: 20px 0;
+              }
+              .metric-card { 
+                background: #f9fafb;
+                padding: 20px; 
+                border-radius: 10px;
+                border: 1px solid #e5e7eb;
+                text-align: center;
+              }
+              .metric-value { 
+                font-size: 36px; 
+                font-weight: bold; 
+                color: #667eea;
+                margin-bottom: 5px;
+              }
+              .metric-label { 
+                color: #6b7280; 
+                font-size: 13px;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+              }
+              .details { 
+                background: #f9fafb;
+                padding: 20px; 
+                border-radius: 10px;
+                margin-top: 20px;
+                border: 1px solid #e5e7eb;
+              }
+              .info-row { 
+                display: flex; 
+                justify-content: space-between; 
+                padding: 12px 0; 
+                border-bottom: 1px solid #e5e7eb;
+              }
+              .info-row:last-child {
+                border-bottom: none;
+              }
+              .info-label { 
+                font-weight: 600; 
+                color: #6b7280;
+                font-size: 14px;
+              }
+              .info-value { 
+                color: #111827;
+                font-family: 'Courier New', monospace;
+                font-size: 14px;
+              }
+              .button { 
+                display: inline-block; 
+                background: #667eea; 
+                color: white; 
+                padding: 14px 32px; 
+                text-decoration: none; 
+                border-radius: 8px; 
+                margin-top: 25px;
+                font-weight: 600;
+                transition: background 0.3s;
+              }
+              .button:hover {
+                background: #5568d3;
+              }
+              .footer { 
+                text-align: center; 
+                margin-top: 30px; 
+                padding-top: 20px;
+                border-top: 1px solid #e5e7eb;
+                color: #6b7280; 
+                font-size: 12px;
+              }
+              .emoji {
+                font-size: 24px;
+                margin-right: 8px;
+              }
             </style>
           </head>
           <body>
             <div class="container">
               <div class="header">
-                <h1>🏦 XYZ Bank Test Automation Report</h1>
-                <div class="status-badge status-${{ steps.test_summary.outputs.status == 'PASSED' && 'passed' || 'failed' }}">
+                <h1><span class="emoji">🏦</span>XYZ Bank Test Automation</h1>
+                <div class="status-badge status-${{ steps.test_summary.outputs.status == 'PASSED' && 'passed' || steps.test_summary.outputs.status == 'FAILED' && 'failed' || 'error' }}">
                   ${{ steps.test_summary.outputs.status }}
                 </div>
               </div>
               
               <div class="content">
-                <h2>Test Execution Summary</h2>
+                <div class="section-title">📊 Test Execution Summary</div>
                 
                 <div class="metrics">
                   <div class="metric-card">
@@ -240,49 +413,55 @@ jobs:
                   </div>
                 </div>
                 
+                <div class="section-title">📋 Execution Details</div>
                 <div class="details">
-                  <h3>📋 Execution Details</h3>
                   <div class="info-row">
-                    <span class="info-label">Repository:</span>
+                    <span class="info-label">Repository</span>
                     <span class="info-value">${{ github.repository }}</span>
                   </div>
                   <div class="info-row">
-                    <span class="info-label">Branch:</span>
+                    <span class="info-label">Branch</span>
                     <span class="info-value">${{ github.ref_name }}</span>
                   </div>
                   <div class="info-row">
-                    <span class="info-label">Commit:</span>
+                    <span class="info-label">Commit</span>
                     <span class="info-value">${{ github.sha }}</span>
                   </div>
                   <div class="info-row">
-                    <span class="info-label">Triggered by:</span>
+                    <span class="info-label">Triggered by</span>
                     <span class="info-value">${{ github.actor }}</span>
                   </div>
                   <div class="info-row">
-                    <span class="info-label">Event:</span>
+                    <span class="info-label">Event Type</span>
                     <span class="info-value">${{ github.event_name }}</span>
                   </div>
                   <div class="info-row">
-                    <span class="info-label">Workflow Run:</span>
+                    <span class="info-label">Workflow Run</span>
                     <span class="info-value">#${{ github.run_number }}</span>
+                  </div>
+                  <div class="info-row">
+                    <span class="info-label">Commit Message</span>
+                    <span class="info-value">${{ github.event.head_commit.message }}</span>
                   </div>
                 </div>
                 
                 <div style="text-align: center;">
                   <a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" class="button">
-                    View Full Report on GitHub
+                    📊 View Full Report on GitHub
                   </a>
                 </div>
                 
                 <div class="footer">
-                  <p>This is an automated message from XYZ Bank Test Automation CI/CD Pipeline</p>
-                  <p>Generated on: $(date -u '+%Y-%m-%d %H:%M:%S UTC')</p>
+                  <p><strong>XYZ Bank Test Automation CI/CD Pipeline</strong></p>
+                  <p>Automated test execution powered by GitHub Actions</p>
+                  <p style="margin-top: 10px; color: #9ca3af;">
+                    This is an automated notification. Please do not reply to this email.
+                  </p>
                 </div>
               </div>
             </div>
           </body>
           </html>
-        attachments: target/surefire-reports/testng-results.xml
     
     - name: Upload Allure Results
       if: always()
@@ -318,4 +497,4 @@ jobs:
         name: surefire-reports
         path: target/surefire-reports
         retention-days: 7
-        if-no-files-found: ignore
+        if-no-files-found: warn
