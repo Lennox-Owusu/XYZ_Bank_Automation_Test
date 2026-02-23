@@ -24,17 +24,265 @@ jobs:
     
     - name: Install Chrome
       uses: browser-actions/setup-chrome@latest
+      with:
+        chrome-version: stable
     
-    - name: Install ChromeDriver
-      uses: nanasess/setup-chromedriver@master
+    - name: Display Chrome version
+      run: google-chrome --version
     
     - name: Run tests
-      run: mvn clean test
+      id: tests
+      run: |
+        mvn clean test
+        echo "test_result=$?" >> $GITHUB_OUTPUT
       continue-on-error: true
     
     - name: Generate Allure Report
       if: always()
       run: mvn allure:report
+    
+    - name: Get test results summary
+      if: always()
+      id: test_summary
+      run: |
+        # Extract test results from surefire reports
+        if [ -f target/surefire-reports/testng-results.xml ]; then
+          TOTAL=$(grep -oP 'total="\K[0-9]+' target/surefire-reports/testng-results.xml | head -1)
+          PASSED=$(grep -oP 'passed="\K[0-9]+' target/surefire-reports/testng-results.xml | head -1)
+          FAILED=$(grep -oP 'failed="\K[0-9]+' target/surefire-reports/testng-results.xml | head -1)
+          SKIPPED=$(grep -oP 'skipped="\K[0-9]+' target/surefire-reports/testng-results.xml | head -1)
+          
+          echo "total=$TOTAL" >> $GITHUB_OUTPUT
+          echo "passed=$PASSED" >> $GITHUB_OUTPUT
+          echo "failed=$FAILED" >> $GITHUB_OUTPUT
+          echo "skipped=$SKIPPED" >> $GITHUB_OUTPUT
+          
+          if [ "$FAILED" -gt 0 ]; then
+            echo "status=FAILED" >> $GITHUB_OUTPUT
+            echo "status_emoji=🔴" >> $GITHUB_OUTPUT
+          else
+            echo "status=PASSED" >> $GITHUB_OUTPUT
+            echo "status_emoji=✅" >> $GITHUB_OUTPUT
+          fi
+        else
+          echo "status=ERROR" >> $GITHUB_OUTPUT
+          echo "status_emoji=⚠️" >> $GITHUB_OUTPUT
+          echo "total=0" >> $GITHUB_OUTPUT
+          echo "passed=0" >> $GITHUB_OUTPUT
+          echo "failed=0" >> $GITHUB_OUTPUT
+          echo "skipped=0" >> $GITHUB_OUTPUT
+        fi
+    
+    - name: Extract failed test details
+      if: always()
+      id: failed_tests
+      run: |
+        if [ -d target/surefire-reports ]; then
+          # Find failed tests
+          FAILED_TESTS=$(grep -r "FAILED" target/surefire-reports/*.txt 2>/dev/null | head -10 || echo "No failed tests found")
+          
+          # Save to file for email
+          echo "$FAILED_TESTS" > failed_tests.txt
+          
+          # Format for Slack (escape special characters)
+          FAILED_TESTS_SLACK=$(echo "$FAILED_TESTS" | sed 's/"/\\"/g' | head -c 2000)
+          echo "failed_tests_slack=$FAILED_TESTS_SLACK" >> $GITHUB_OUTPUT
+        fi
+    
+    - name: Send Slack notification
+      if: always()
+      uses: slackapi/slack-github-action@v1.25.0
+      with:
+        payload: |
+          {
+            "blocks": [
+              {
+                "type": "header",
+                "text": {
+                  "type": "plain_text",
+                  "text": "${{ steps.test_summary.outputs.status_emoji }} XYZ Bank Test Automation Report",
+                  "emoji": true
+                }
+              },
+              {
+                "type": "section",
+                "fields": [
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Status:*\n${{ steps.test_summary.outputs.status }}"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Branch:*\n${{ github.ref_name }}"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Commit:*\n${{ github.sha }}"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Author:*\n${{ github.actor }}"
+                  }
+                ]
+              },
+              {
+                "type": "section",
+                "fields": [
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Total Tests:*\n${{ steps.test_summary.outputs.total }}"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Passed:*\n✅ ${{ steps.test_summary.outputs.passed }}"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Failed:*\n❌ ${{ steps.test_summary.outputs.failed }}"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Skipped:*\n⏭️ ${{ steps.test_summary.outputs.skipped }}"
+                  }
+                ]
+              },
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "*Workflow Run:*\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Details>"
+                }
+              },
+              {
+                "type": "divider"
+              },
+              {
+                "type": "context",
+                "elements": [
+                  {
+                    "type": "mrkdwn",
+                    "text": "Repository: *${{ github.repository }}* | Triggered by: *${{ github.event_name }}*"
+                  }
+                ]
+              }
+            ]
+          }
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+    
+    - name: Send Gmail notification
+      if: always()
+      uses: dawidd6/action-send-mail@v3
+      with:
+        server_address: smtp.gmail.com
+        server_port: 587
+        username: ${{ secrets.GMAIL_USERNAME }}
+        password: ${{ secrets.GMAIL_APP_PASSWORD }}
+        subject: "${{ steps.test_summary.outputs.status_emoji }} XYZ Bank Test Report - ${{ steps.test_summary.outputs.status }}"
+        to: ${{ secrets.GMAIL_RECIPIENT }}
+        from: ${{ secrets.GMAIL_USERNAME }}
+        html_body: |
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <style>
+              body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+              .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+              .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
+              .status-badge { display: inline-block; padding: 10px 20px; border-radius: 20px; font-weight: bold; margin: 10px 0; }
+              .status-passed { background-color: #10b981; color: white; }
+              .status-failed { background-color: #ef4444; color: white; }
+              .content { background: #f9fafb; padding: 30px; border-radius: 0 0 10px 10px; }
+              .metrics { display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin: 20px 0; }
+              .metric-card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+              .metric-value { font-size: 32px; font-weight: bold; color: #667eea; }
+              .metric-label { color: #6b7280; font-size: 14px; margin-top: 5px; }
+              .details { background: white; padding: 20px; border-radius: 8px; margin-top: 20px; }
+              .details h3 { color: #374151; margin-top: 0; }
+              .info-row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #e5e7eb; }
+              .info-label { font-weight: bold; color: #6b7280; }
+              .info-value { color: #111827; }
+              .button { display: inline-block; background: #667eea; color: white; padding: 12px 30px; text-decoration: none; border-radius: 6px; margin-top: 20px; }
+              .footer { text-align: center; margin-top: 30px; color: #6b7280; font-size: 12px; }
+              .failed-tests { background: #fef2f2; border-left: 4px solid #ef4444; padding: 15px; margin-top: 15px; }
+              .failed-tests pre { background: white; padding: 10px; border-radius: 4px; overflow-x: auto; font-size: 12px; }
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <div class="header">
+                <h1>🏦 XYZ Bank Test Automation Report</h1>
+                <div class="status-badge status-${{ steps.test_summary.outputs.status == 'PASSED' && 'passed' || 'failed' }}">
+                  ${{ steps.test_summary.outputs.status }}
+                </div>
+              </div>
+              
+              <div class="content">
+                <h2>Test Execution Summary</h2>
+                
+                <div class="metrics">
+                  <div class="metric-card">
+                    <div class="metric-value">${{ steps.test_summary.outputs.total }}</div>
+                    <div class="metric-label">Total Tests</div>
+                  </div>
+                  <div class="metric-card">
+                    <div class="metric-value" style="color: #10b981;">${{ steps.test_summary.outputs.passed }}</div>
+                    <div class="metric-label">✅ Passed</div>
+                  </div>
+                  <div class="metric-card">
+                    <div class="metric-value" style="color: #ef4444;">${{ steps.test_summary.outputs.failed }}</div>
+                    <div class="metric-label">❌ Failed</div>
+                  </div>
+                  <div class="metric-card">
+                    <div class="metric-value" style="color: #f59e0b;">${{ steps.test_summary.outputs.skipped }}</div>
+                    <div class="metric-label">⏭️ Skipped</div>
+                  </div>
+                </div>
+                
+                <div class="details">
+                  <h3>📋 Execution Details</h3>
+                  <div class="info-row">
+                    <span class="info-label">Repository:</span>
+                    <span class="info-value">${{ github.repository }}</span>
+                  </div>
+                  <div class="info-row">
+                    <span class="info-label">Branch:</span>
+                    <span class="info-value">${{ github.ref_name }}</span>
+                  </div>
+                  <div class="info-row">
+                    <span class="info-label">Commit:</span>
+                    <span class="info-value">${{ github.sha }}</span>
+                  </div>
+                  <div class="info-row">
+                    <span class="info-label">Triggered by:</span>
+                    <span class="info-value">${{ github.actor }}</span>
+                  </div>
+                  <div class="info-row">
+                    <span class="info-label">Event:</span>
+                    <span class="info-value">${{ github.event_name }}</span>
+                  </div>
+                  <div class="info-row">
+                    <span class="info-label">Workflow Run:</span>
+                    <span class="info-value">#${{ github.run_number }}</span>
+                  </div>
+                </div>
+                
+                <div style="text-align: center;">
+                  <a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" class="button">
+                    View Full Report on GitHub
+                  </a>
+                </div>
+                
+                <div class="footer">
+                  <p>This is an automated message from XYZ Bank Test Automation CI/CD Pipeline</p>
+                  <p>Generated on: $(date -u '+%Y-%m-%d %H:%M:%S UTC')</p>
+                </div>
+              </div>
+            </div>
+          </body>
+          </html>
+        attachments: target/surefire-reports/testng-results.xml
     
     - name: Upload Allure Results
       if: always()
@@ -43,6 +291,7 @@ jobs:
         name: allure-results
         path: target/allure-results
         retention-days: 30
+        if-no-files-found: warn
     
     - name: Upload Allure Report
       if: always()
@@ -51,6 +300,7 @@ jobs:
         name: allure-report
         path: target/site/allure-maven-plugin
         retention-days: 30
+        if-no-files-found: warn
     
     - name: Upload Test Logs
       if: always()
@@ -58,5 +308,14 @@ jobs:
       with:
         name: test-logs
         path: logs/
+        retention-days: 7
+        if-no-files-found: ignore
+    
+    - name: Upload Surefire Reports
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: surefire-reports
+        path: target/surefire-reports
         retention-days: 7
         if-no-files-found: ignore
