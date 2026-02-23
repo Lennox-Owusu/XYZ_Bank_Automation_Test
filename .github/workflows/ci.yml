@@ -55,6 +55,10 @@ jobs:
         else
           echo "testng-results.xml not found"
         fi
+        if [ -f target/surefire-reports/TEST-TestSuite.xml ]; then
+          echo "=== TEST-TestSuite.xml Content (first 30 lines) ==="
+          head -30 target/surefire-reports/TEST-TestSuite.xml
+        fi
     
     - name: Get test results summary
       if: always()
@@ -66,39 +70,52 @@ jobs:
         FAILED=0
         SKIPPED=0
         
-        # Try to find and parse testng-results.xml
-        if [ -f target/surefire-reports/testng-results.xml ]; then
-          echo "Parsing testng-results.xml..."
+        # Look for TEST-TestSuite.xml (JUnit/Surefire format)
+        if [ -f target/surefire-reports/TEST-TestSuite.xml ]; then
+          echo "Found TEST-TestSuite.xml, parsing..."
           
-          # Extract values using grep and sed
-          TOTAL=$(grep -oP 'total="\K[0-9]+' target/surefire-reports/testng-results.xml 2>/dev/null | head -1 || echo "0")
-          PASSED=$(grep -oP 'passed="\K[0-9]+' target/surefire-reports/testng-results.xml 2>/dev/null | head -1 || echo "0")
-          FAILED=$(grep -oP 'failed="\K[0-9]+' target/surefire-reports/testng-results.xml 2>/dev/null | head -1 || echo "0")
-          SKIPPED=$(grep -oP 'skipped="\K[0-9]+' target/surefire-reports/testng-results.xml 2>/dev/null | head -1 || echo "0")
+          # Parse JUnit XML format
+          TOTAL=$(grep -oP 'tests="\K[0-9]+' target/surefire-reports/TEST-TestSuite.xml | head -1)
+          FAILURES=$(grep -oP 'failures="\K[0-9]+' target/surefire-reports/TEST-TestSuite.xml | head -1)
+          ERRORS=$(grep -oP 'errors="\K[0-9]+' target/surefire-reports/TEST-TestSuite.xml | head -1)
+          SKIPPED=$(grep -oP 'skipped="\K[0-9]+' target/surefire-reports/TEST-TestSuite.xml | head -1)
           
-          echo "Extracted: Total=$TOTAL, Passed=$PASSED, Failed=$FAILED, Skipped=$SKIPPED"
+          # Calculate passed (total - failures - errors)
+          TOTAL=${TOTAL:-0}
+          FAILURES=${FAILURES:-0}
+          ERRORS=${ERRORS:-0}
+          SKIPPED=${SKIPPED:-0}
+          
+          FAILED=$((FAILURES + ERRORS))
+          PASSED=$((TOTAL - FAILED - SKIPPED))
+          
+          echo "Parsed from TEST-TestSuite.xml:"
+          echo "  Total: $TOTAL"
+          echo "  Failures: $FAILURES"
+          echo "  Errors: $ERRORS"
+          echo "  Skipped: $SKIPPED"
+          echo "  Calculated Passed: $PASSED"
+          echo "  Calculated Failed: $FAILED"
+          
+        elif [ -f target/surefire-reports/testng-results.xml ]; then
+          echo "Found testng-results.xml, parsing..."
+          
+          # Parse TestNG format
+          TOTAL=$(grep -oP 'total="\K[0-9]+' target/surefire-reports/testng-results.xml | head -1)
+          PASSED=$(grep -oP 'passed="\K[0-9]+' target/surefire-reports/testng-results.xml | head -1)
+          FAILED=$(grep -oP 'failed="\K[0-9]+' target/surefire-reports/testng-results.xml | head -1)
+          SKIPPED=$(grep -oP 'skipped="\K[0-9]+' target/surefire-reports/testng-results.xml | head -1)
+          
+          TOTAL=${TOTAL:-0}
+          PASSED=${PASSED:-0}
+          FAILED=${FAILED:-0}
+          SKIPPED=${SKIPPED:-0}
+          
         else
-          echo "testng-results.xml not found, checking for alternative sources..."
-          
-          # Try to count from surefire text reports
-          if [ -d target/surefire-reports ]; then
-            TXT_FILES=$(find target/surefire-reports -name "*.txt" 2>/dev/null | wc -l)
-            if [ "$TXT_FILES" -gt 0 ]; then
-              echo "Found $TXT_FILES test report files"
-              # This is a fallback - adjust as needed
-              TOTAL=$TXT_FILES
-              PASSED=$(grep -l "PASSED" target/surefire-reports/*.txt 2>/dev/null | wc -l || echo "0")
-              FAILED=$(grep -l "FAILED" target/surefire-reports/*.txt 2>/dev/null | wc -l || echo "0")
-            fi
-          fi
+          echo "No test results XML found"
         fi
         
-        # Ensure we have valid numbers
-        TOTAL=${TOTAL:-0}
-        PASSED=${PASSED:-0}
-        FAILED=${FAILED:-0}
-        SKIPPED=${SKIPPED:-0}
-        
+        echo ""
         echo "Final values: Total=$TOTAL, Passed=$PASSED, Failed=$FAILED, Skipped=$SKIPPED"
         
         # Write to GitHub output
@@ -129,18 +146,13 @@ jobs:
         FAILED_DETAILS=""
         
         if [ -d target/surefire-reports ]; then
-          # Look for failed tests in text reports
           if ls target/surefire-reports/*.txt 1> /dev/null 2>&1; then
             FAILED_DETAILS=$(grep -A 5 "FAILED" target/surefire-reports/*.txt 2>/dev/null | head -20 || echo "No failure details found")
           fi
           
-          # Save to file
           echo "$FAILED_DETAILS" > failed_tests.txt
           
-          # Format for Slack (truncate if too long)
           FAILED_TESTS_SLACK=$(echo "$FAILED_DETAILS" | head -c 1500)
-          
-          # Escape for JSON
           FAILED_TESTS_SLACK=$(echo "$FAILED_TESTS_SLACK" | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
           
           echo "failed_details<<EOF" >> $GITHUB_OUTPUT
