@@ -59,12 +59,36 @@ public class WebDriverFactory {
     private static WebDriver createChromeDriver(boolean headless) {
         WebDriverManager.chromedriver().setup();
         ChromeOptions options = new ChromeOptions();
-        if (headless) {
+
+        // Check if running in CI environment
+        String ciEnv = System.getenv("CI");
+        boolean isCI = "true".equals(ciEnv);
+
+        if (isCI || headless) {
             options.addArguments("--headless=new");
+            LoggerUtil.info(WebDriverFactory.class, "Running Chrome in HEADLESS mode (CI: " + isCI + ")");
         }
-        options.addArguments("--disable-gpu");
+
+        // Essential arguments for CI/Linux environments
         options.addArguments("--no-sandbox");
         options.addArguments("--disable-dev-shm-usage");
+        options.addArguments("--disable-gpu");
+        options.addArguments("--window-size=1920,1080");
+        options.addArguments("--disable-extensions");
+        options.addArguments("--disable-blink-features=AutomationControlled");
+        options.addArguments("--remote-allow-origins=*");
+        options.addArguments("--disable-software-rasterizer");
+        options.addArguments("--disable-setuid-sandbox");
+
+        if (isCI) {
+            // Additional CI-specific options
+            options.addArguments("--disable-background-networking");
+            options.addArguments("--disable-default-apps");
+            options.addArguments("--disable-sync");
+            options.addArguments("--metrics-recording-only");
+            options.addArguments("--mute-audio");
+        }
+
         return new ChromeDriver(options);
     }
 
