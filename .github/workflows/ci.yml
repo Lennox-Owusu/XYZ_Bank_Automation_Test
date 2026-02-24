@@ -299,6 +299,21 @@ jobs:
       env:
         SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+
+    - name: Debug - Check Slack webhook
+      if: always() && steps.test_summary.outputs.failed > 0
+      run: |
+        echo "Checking Slack webhook URL..."
+        if [ -z "${{ secrets.SLACK_WEBHOOK_URL }}" ]; then
+          echo "ERROR: SLACK_WEBHOOK_URL secret is not set!"
+        else
+          echo "SLACK_WEBHOOK_URL is set"
+          echo "URL length: ${#SLACK_WEBHOOK_URL}"
+          echo "First 30 chars: ${SLACK_WEBHOOK_URL:0:30}..."
+        fi
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+ 
     
     - name: Send failed tests to Slack
       if: always() && steps.test_summary.outputs.failed > 0
