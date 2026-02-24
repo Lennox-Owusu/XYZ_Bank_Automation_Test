@@ -303,37 +303,16 @@ jobs:
     - name: Send failed tests to Slack
       if: always() && steps.test_summary.outputs.failed > 0
       run: |
-        # Create a simple text list of failed tests
-        FAILED_TEXT=$(echo "${{ steps.failed_tests.outputs.failed_list }}" | sed 's/$/\\n/g' | tr -d '\n')
-        
-        # Create JSON payload
-        cat > /tmp/slack_payload.json << 'EOF'
+        # Write payload to file
+        cat > payload.json << 'EOF'
         {
-          "blocks": [
-            {
-              "type": "section",
-              "text": {
-                "type": "mrkdwn",
-                "text": "*❌ Failed Tests:*"
-              }
-            },
-            {
-              "type": "section",
-              "text": {
-                "type": "plain_text",
-                "text": "${{ steps.failed_tests.outputs.failed_list }}"
-              }
-            }
-          ]
+          "text": "❌ *Failed Tests:*\n```\n${{ steps.failed_tests.outputs.failed_list }}\n```"
         }
         EOF
         
         # Send to Slack
-        curl -X POST ${{ secrets.SLACK_WEBHOOK_URL }} \
-          -H 'Content-Type: application/json' \
-          -d @/tmp/slack_payload.json
-      env:
-        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        curl -X POST "${{ secrets.SLACK_WEBHOOK_URL }}" -H "Content-Type: application/json" -d @payload.json
+
 
 
 
