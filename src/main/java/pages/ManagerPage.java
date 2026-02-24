@@ -1,7 +1,6 @@
 package pages;
 
-import models.Customer;
-import pagesHelper.BasePage;
+import utils.SeleniumUtils;
 import utils.LoggerUtil;
 import org.openqa.selenium.By;
 import org.openqa.selenium.WebElement;
@@ -9,7 +8,7 @@ import org.openqa.selenium.support.FindBy;
 
 import java.util.List;
 
-public class ManagerPage extends BasePage {
+public class ManagerPage extends SeleniumUtils {
 
     @FindBy(css = "button[ng-click='addCust()']")
     private WebElement addCustomerButton;
@@ -47,17 +46,6 @@ public class ManagerPage extends BasePage {
     @FindBy(css = "table tbody tr")
     private List<WebElement> customerRows;
 
-    public ManagerPage(WebElement addCustomerButton, WebElement openAccountButton, WebElement searchCustomerInput, List<WebElement> customerRows) {
-        super();
-        this.addCustomerButton = addCustomerButton;
-        this.openAccountButton = openAccountButton;
-        this.searchCustomerInput = searchCustomerInput;
-        this.customerRows = customerRows;
-    }
-
-    public ManagerPage() {
-
-    }
 
     public void clickAddCustomer() {
         click(addCustomerButton, "Add Customer Tab");
@@ -71,18 +59,19 @@ public class ManagerPage extends BasePage {
         click(customersButton, "Customers Tab");
     }
 
-    public void addCustomer(Customer customer) {
-        LoggerUtil.logStep(ManagerPage.class, "Adding customer: " + customer.getFullName());
+    public void addCustomer(String firstName, String lastName, String postalCode) {
+        LoggerUtil.logStep(ManagerPage.class, "Adding customer: " + firstName + " " + lastName);
 
         clickAddCustomer();
-        type(firstNameInput, customer.getFirstName(), "First Name");
-        type(lastNameInput, customer.getLastName(), "Last Name");
-        type(postCodeInput, customer.getPostalCode(), "Post Code");
+        type(firstNameInput, firstName, "First Name");
+        type(lastNameInput, lastName, "Last Name");
+        type(postCodeInput, postalCode, "Post Code");
         click(addCustomerSubmitButton, "Add Customer Submit Button");
 
         handleAlert();
-        LoggerUtil.info(ManagerPage.class, "Customer added successfully: " + customer.getFullName());
+        LoggerUtil.info(ManagerPage.class, "Customer added successfully: " + firstName + " " + lastName);
     }
+
 
     public void addCustomerWithInvalidData(String firstName, String lastName, String postCode) {
         LoggerUtil.logStep(ManagerPage.class, "Attempting to add customer with invalid data");
@@ -173,10 +162,10 @@ public class ManagerPage extends BasePage {
         // Handle any pending alerts first
         handleAlert();
 
-        waitHelper.waitForSeconds(1);
+        waitForSeconds(1);
         clickCustomers();
 
-        waitHelper.waitForSeconds(1);
+       waitForSeconds(1);
         int count = customerRows.size();
         LoggerUtil.debug(ManagerPage.class, "Total customers: " + count);
         return count;
@@ -185,7 +174,7 @@ public class ManagerPage extends BasePage {
 
     private void handleAlert() {
         try {
-            waitHelper.waitForSeconds(1);
+            waitForSeconds(1);
             String alertText = driver.switchTo().alert().getText();
             LoggerUtil.info(ManagerPage.class, "Alert message: " + alertText);
             driver.switchTo().alert().accept();

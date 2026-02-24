@@ -1,12 +1,12 @@
 package pages;
 
 import config.ConfigReader;
-import pagesHelper.BasePage;
+import utils.SeleniumUtils;
 import utils.LoggerUtil;
 import org.openqa.selenium.WebElement;
 import org.openqa.selenium.support.FindBy;
 
-public class HomePage extends BasePage {
+public class HomePage extends SeleniumUtils {
 
     @FindBy(css = "button[ng-click='manager()']")
     private WebElement bankManagerLoginButton;

@@ -2,7 +2,6 @@ package tests;
 
 import base.BaseTest;
 import io.qameta.allure.*;
-import models.Customer;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 import pages.ManagerPage;
@@ -19,15 +18,18 @@ public class ManagerTests extends BaseTest {
     public void testAddCustomerWithValidData() {
         LoggerUtil.info(ManagerTests.class, "Starting test: Add Customer with Valid Data");
 
-        Customer customer = TestDataGenerator.generateValidCustomer();
+        String[] customerData = TestDataGenerator.generateValidCustomerData();
+        String firstName = customerData[0];
+        String lastName = customerData[1];
+        String postalCode = customerData[2];
 
         ManagerPage managerPage = homePage.clickBankManagerLogin();
-        managerPage.addCustomer(customer);
+        managerPage.addCustomer(firstName, lastName, postalCode);
 
-        boolean isCustomerAdded = managerPage.isCustomerInList(customer.getFirstName());
+        boolean isCustomerAdded = managerPage.isCustomerInList(firstName);
 
         Assert.assertTrue(isCustomerAdded,
-                "Customer should be added to the list: " + customer.getFullName());
+                "Customer should be added to the list: " + firstName + " " + lastName);
 
         LoggerUtil.info(ManagerTests.class, "Test completed: Customer added successfully");
     }
@@ -53,7 +55,6 @@ public class ManagerTests extends BaseTest {
         int finalCount = managerPage.getCustomerCount();
         LoggerUtil.info(ManagerTests.class, "Final customer count: " + finalCount);
 
-        // This assertion will FAIL - which is correct because the app has a bug
         Assert.assertEquals(finalCount, initialCount,
                 "BUG FOUND: Customer count should NOT increase when adding invalid name with numbers. " +
                         "Expected: " + initialCount + ", Actual: " + finalCount);
@@ -82,7 +83,6 @@ public class ManagerTests extends BaseTest {
         int finalCount = managerPage.getCustomerCount();
         LoggerUtil.info(ManagerTests.class, "Final customer count: " + finalCount);
 
-        // This assertion will FAIL - which is correct because the app has a bug
         Assert.assertEquals(finalCount, initialCount,
                 "BUG FOUND: Customer count should NOT increase when adding invalid name with special characters. " +
                         "Expected: " + initialCount + ", Actual: " + finalCount);
@@ -90,7 +90,7 @@ public class ManagerTests extends BaseTest {
         LoggerUtil.info(ManagerTests.class, "Test completed: Invalid name with special chars rejected");
     }
 
-    @Test(priority = 4,enabled = false, description = "Verify postal code validation - reject letters")
+    @Test(priority = 4, enabled = false, description = "Verify postal code validation - reject letters")
     @Story("Add Customer Validation")
     @Severity(SeverityLevel.CRITICAL)
     @Description("BUG: Application should reject postal codes containing letters but currently accepts them")
@@ -111,7 +111,6 @@ public class ManagerTests extends BaseTest {
         int finalCount = managerPage.getCustomerCount();
         LoggerUtil.info(ManagerTests.class, "Final customer count: " + finalCount);
 
-        // This assertion will FAIL - which is correct because the app has a bug
         Assert.assertEquals(finalCount, initialCount,
                 "BUG FOUND: Customer count should NOT increase when adding invalid postal code with letters. " +
                         "Expected: " + initialCount + ", Actual: " + finalCount);
@@ -125,13 +124,17 @@ public class ManagerTests extends BaseTest {
     public void testCreateAccountForExistingCustomer() {
         LoggerUtil.info(ManagerTests.class, "Starting test: Create Account for Existing Customer");
 
-        Customer customer = TestDataGenerator.generateValidCustomer();
+        String[] customerData = TestDataGenerator.generateValidCustomerData();
+        String firstName = customerData[0];
+        String lastName = customerData[1];
+        String postalCode = customerData[2];
+        String fullName = TestDataGenerator.generateFullName(firstName, lastName);
 
         ManagerPage managerPage = homePage.clickBankManagerLogin();
-        managerPage.addCustomer(customer);
+        managerPage.addCustomer(firstName, lastName, postalCode);
 
         String currency = "Dollar";
-        managerPage.openAccount(customer.getFullName(), currency);
+        managerPage.openAccount(fullName, currency);
 
         LoggerUtil.info(ManagerTests.class, "Test completed: Account created successfully");
         Assert.assertTrue(true, "Account created without errors");
@@ -143,17 +146,20 @@ public class ManagerTests extends BaseTest {
     public void testDeleteCustomerAccount() {
         LoggerUtil.info(ManagerTests.class, "Starting test: Delete Customer Account");
 
-        Customer customer = TestDataGenerator.generateValidCustomer();
+        String[] customerData = TestDataGenerator.generateValidCustomerData();
+        String firstName = customerData[0];
+        String lastName = customerData[1];
+        String postalCode = customerData[2];
 
         ManagerPage managerPage = homePage.clickBankManagerLogin();
-        managerPage.addCustomer(customer);
+        managerPage.addCustomer(firstName, lastName, postalCode);
 
-        boolean isCustomerAdded = managerPage.isCustomerInList(customer.getFirstName());
+        boolean isCustomerAdded = managerPage.isCustomerInList(firstName);
         Assert.assertTrue(isCustomerAdded, "Customer should be in the list before deletion");
 
-        managerPage.deleteCustomer(customer.getFirstName());
+        managerPage.deleteCustomer(firstName);
 
-        boolean isCustomerDeleted = !managerPage.isCustomerInList(customer.getFirstName());
+        boolean isCustomerDeleted = !managerPage.isCustomerInList(firstName);
         Assert.assertTrue(isCustomerDeleted,
                 "Customer should be removed from the list after deletion");
 
@@ -166,17 +172,21 @@ public class ManagerTests extends BaseTest {
     public void testSearchCustomer() {
         LoggerUtil.info(ManagerTests.class, "Starting test: Search Customer");
 
-        Customer customer = TestDataGenerator.generateValidCustomer();
+        String[] customerData = TestDataGenerator.generateValidCustomerData();
+        String firstName = customerData[0];
+        String lastName = customerData[1];
+        String postalCode = customerData[2];
+        String fullName = TestDataGenerator.generateFullName(firstName, lastName);
 
         ManagerPage managerPage = homePage.clickBankManagerLogin();
-        managerPage.addCustomer(customer);
+        managerPage.addCustomer(firstName, lastName, postalCode);
 
         managerPage.clickCustomers();
-        managerPage.searchCustomer(customer.getFirstName());
+        managerPage.searchCustomer(firstName);
 
-        boolean isCustomerFound = managerPage.isCustomerInList(customer.getFirstName());
+        boolean isCustomerFound = managerPage.isCustomerInList(firstName);
         Assert.assertTrue(isCustomerFound,
-                "Customer should be found in search results: " + customer.getFullName());
+                "Customer should be found in search results: " + fullName);
 
         LoggerUtil.info(ManagerTests.class, "Test completed: Customer search successful");
     }

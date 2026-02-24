@@ -2,7 +2,6 @@ package tests;
 
 import base.BaseTest;
 import io.qameta.allure.*;
-import models.Customer;
 import org.testng.Assert;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
@@ -20,15 +19,15 @@ public class CustomerTests extends BaseTest {
 
     @BeforeMethod
     public void createTestCustomer() {
-        LoggerUtil.info(CustomerTests.class, "Creating test customer for the test");
-
-        Customer testCustomer = TestDataGenerator.generateValidCustomer();
-        customerFullName = testCustomer.getFullName();
+        String[] customerData = TestDataGenerator.generateValidCustomerData();
+        String firstName = customerData[0];
+        String lastName = customerData[1];
+        String postalCode = customerData[2];
+        customerFullName = TestDataGenerator.generateFullName(firstName, lastName);
 
         ManagerPage managerPage = homePage.clickBankManagerLogin();
-        managerPage.addCustomer(testCustomer);
+        managerPage.addCustomer(firstName, lastName, postalCode);
         managerPage.openAccount(customerFullName, "Dollar");
-
         homePage.clickHome();
 
         LoggerUtil.info(CustomerTests.class, "Test customer created: " + customerFullName);
@@ -69,7 +68,6 @@ public class CustomerTests extends BaseTest {
 
         accountPage.deposit(depositAmount);
 
-        // USE THE METHOD HERE
         boolean isSuccessful = accountPage.isTransactionSuccessful();
         Assert.assertTrue(isSuccessful, "Deposit transaction should be successful");
 
@@ -99,7 +97,6 @@ public class CustomerTests extends BaseTest {
 
         accountPage.withdraw(withdrawalAmount);
 
-        // USE THE METHOD HERE
         boolean isSuccessful = accountPage.isTransactionSuccessful();
         Assert.assertTrue(isSuccessful, "Withdrawal transaction should be successful");
 
@@ -176,18 +173,15 @@ public class CustomerTests extends BaseTest {
 
         int initialBalance = accountPage.getBalance();
 
-        // Deposit zero amount
         accountPage.deposit(0);
 
         int finalBalance = accountPage.getBalance();
 
-        // Balance should remain the same
         Assert.assertEquals(finalBalance, initialBalance,
                 "Balance should not change when depositing zero amount");
 
         LoggerUtil.info(CustomerTests.class, "Test completed: Invalid deposit rejected");
     }
-
 
     @Test(priority = 7, description = "Verify multiple deposits update balance correctly")
     @Story("Deposit Funds")
@@ -224,13 +218,11 @@ public class CustomerTests extends BaseTest {
     @Severity(SeverityLevel.CRITICAL)
     @Description("CRITICAL BUG: Customer can reset transaction history which violates audit trail integrity and financial regulations")
     public void testCustomerCannotResetTransactions() {
-
         LoggerUtil.info(CustomerTests.class, "Starting test: Customer Cannot Reset Transactions");
 
         CustomerLoginPage loginPage = homePage.clickCustomerLogin();
         AccountPage accountPage = loginPage.loginAsCustomer(customerFullName);
 
-        // Perform some transactions
         accountPage.deposit(500);
         accountPage.withdraw(200);
 
@@ -240,7 +232,6 @@ public class CustomerTests extends BaseTest {
 
         LoggerUtil.info(CustomerTests.class, "Transaction count before reset: " + transactionCountBefore);
 
-        // Attempt to reset transactions (THIS SHOULD NOT BE POSSIBLE)
         accountPage.resetTransactions();
 
         int transactionCountAfter = accountPage.getTransactionCount();
@@ -248,12 +239,10 @@ public class CustomerTests extends BaseTest {
                 "CRITICAL SECURITY BUG: Customer was able to reset transactions! " +
                         "Before: " + transactionCountBefore + ", After: " + transactionCountAfter);
 
-        // This assertion will FAIL - documenting the bug
         Assert.assertEquals(transactionCountAfter, transactionCountBefore,
                 "CRITICAL BUG: Customer should NOT be able to reset transaction history. " +
                         "Transaction count changed from " + transactionCountBefore + " to " + transactionCountAfter);
 
         LoggerUtil.info(CustomerTests.class, "Test completed: Security bug documented");
     }
-
 }

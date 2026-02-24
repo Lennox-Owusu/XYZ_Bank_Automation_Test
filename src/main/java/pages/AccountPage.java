@@ -1,14 +1,14 @@
 package pages;
 
 import org.openqa.selenium.JavascriptExecutor;
-import pagesHelper.BasePage;
+import utils.SeleniumUtils;
 import utils.LoggerUtil;
 import org.openqa.selenium.WebElement;
 import org.openqa.selenium.support.FindBy;
 
 import java.util.List;
 
-public class AccountPage extends BasePage {
+public class AccountPage extends SeleniumUtils {
 
     @FindBy(css = "button[ng-click='transactions()']")
     private WebElement transactionsButton;
@@ -43,23 +43,20 @@ public class AccountPage extends BasePage {
     @FindBy(css = "button[ng-click='reset()']")
     private WebElement resetButton;
 
-    public AccountPage() {
-        super();
-    }
 
     public void clickTransactions() {
-        waitHelper.waitForElementToBeClickable(transactionsButton);
+        waitForElementToBeClickable(transactionsButton);
         click(transactionsButton, "Transactions Button");
-        waitHelper.waitForSeconds(1); // Wait for transaction table to load
+        waitForSeconds(1); // Wait for transaction table to load
     }
 
     public void clickDeposit() {
-        waitHelper.waitForElementToBeClickable(depositButton);
+        waitForElementToBeClickable(depositButton);
         click(depositButton, "Deposit Button");
     }
 
     public void clickWithdrawal() {
-        waitHelper.waitForElementToBeClickable(withdrawalButton);
+        waitForElementToBeClickable(withdrawalButton);
         click(withdrawalButton, "Withdrawal Button");
     }
 
@@ -67,10 +64,10 @@ public class AccountPage extends BasePage {
         try {
             // Scroll to logout button
             ((JavascriptExecutor) driver).executeScript("arguments[0].scrollIntoView(true);", logoutButton);
-            waitHelper.waitForSeconds(1);
+            waitForSeconds(1);
 
             // Try clicking normally
-            waitHelper.waitForElementToBeClickable(logoutButton);
+            waitForElementToBeClickable(logoutButton);
             click(logoutButton, "Logout Button");
 
         } catch (Exception e) {
@@ -89,20 +86,20 @@ public class AccountPage extends BasePage {
         clickDeposit();
 
         // Wait for form to be ready
-        waitHelper.waitForSeconds(1);
-        waitHelper.waitForElementToBeVisible(amountInput);
-        waitHelper.waitForElementToBeClickable(amountInput);
+        waitForSeconds(1);
+        waitForElementToBeVisible(amountInput);
+        waitForElementToBeClickable(amountInput);
 
         // Clear and type amount
         amountInput.clear();
         type(amountInput, String.valueOf(amount), "Amount Input");
 
         // Submit
-        waitHelper.waitForElementToBeClickable(submitButton);
+        waitForElementToBeClickable(submitButton);
         click(submitButton, "Submit Button");
 
         // Wait for transaction to complete
-        waitHelper.waitForSeconds(2);
+        waitForSeconds(2);
 
         LoggerUtil.info(AccountPage.class, "Deposit completed: " + amount);
     }
@@ -113,27 +110,27 @@ public class AccountPage extends BasePage {
         clickWithdrawal();
 
         // Wait for form to be ready
-        waitHelper.waitForSeconds(1);
-        waitHelper.waitForElementToBeVisible(amountInput);
-        waitHelper.waitForElementToBeClickable(amountInput);
+        waitForSeconds(1);
+       waitForElementToBeVisible(amountInput);
+        waitForElementToBeClickable(amountInput);
 
         // Clear and type amount
         amountInput.clear();
         type(amountInput, String.valueOf(amount), "Amount Input");
 
         // Submit
-        waitHelper.waitForElementToBeClickable(submitButton);
+       waitForElementToBeClickable(submitButton);
         click(submitButton, "Submit Button");
 
         // Wait for transaction to complete
-        waitHelper.waitForSeconds(2);
+        waitForSeconds(2);
 
         LoggerUtil.info(AccountPage.class, "Withdrawal completed: " + amount);
     }
 
     public int getBalance() {
-        waitHelper.waitForElementToBeVisible(balanceLabel);
-        waitHelper.waitForSeconds(1); // Extra wait for balance to update
+        waitForElementToBeVisible(balanceLabel);
+       waitForSeconds(1); // Extra wait for balance to update
         String balanceText = getText(balanceLabel, "Balance Label");
         int balance = Integer.parseInt(balanceText);
         LoggerUtil.debug(AccountPage.class, "Current balance: " + balance);
@@ -142,7 +139,7 @@ public class AccountPage extends BasePage {
 
     public String getTransactionMessage() {
         try {
-            waitHelper.waitForElementToBeVisible(transactionMessage);
+            waitForElementToBeVisible(transactionMessage);
             String message = getText(transactionMessage, "Transaction Message");
             LoggerUtil.debug(AccountPage.class, "Transaction message: " + message);
             return message;
@@ -154,7 +151,7 @@ public class AccountPage extends BasePage {
 
     public int getTransactionCount() {
         clickTransactions();
-        waitHelper.waitForSeconds(1);
+       waitForSeconds(1);
         int count = transactionRows.size();
         LoggerUtil.debug(AccountPage.class, "Total transactions: " + count);
         clickBack();
@@ -163,7 +160,7 @@ public class AccountPage extends BasePage {
 
     public boolean isTransactionSuccessful() {
         try {
-            waitHelper.waitForSeconds(1);
+           waitForSeconds(1);
             String message = getTransactionMessage();
 
             if (message.isEmpty()) {
@@ -187,7 +184,7 @@ public class AccountPage extends BasePage {
 
     public boolean isWithdrawalFailed() {
         try {
-            waitHelper.waitForSeconds(1);
+            waitForSeconds(1);
             String message = getTransactionMessage();
 
             if (message.isEmpty()) {
@@ -208,17 +205,17 @@ public class AccountPage extends BasePage {
     }
 
     public void clickBack() {
-        waitHelper.waitForElementToBeClickable(backButton);
+        waitForElementToBeClickable(backButton);
         click(backButton, "Back Button");
-        waitHelper.waitForSeconds(1);
+        waitForSeconds(1);
     }
 
     public void resetTransactions() {
         clickTransactions();
-        waitHelper.waitForElementToBeClickable(resetButton);
+        waitForElementToBeClickable(resetButton);
         click(resetButton, "Reset Button");
         LoggerUtil.info(AccountPage.class, "Transactions reset");
-        waitHelper.waitForSeconds(1);
+        waitForSeconds(1);
         clickBack();
     }
 }

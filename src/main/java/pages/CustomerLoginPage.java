@@ -1,22 +1,18 @@
 package pages;
 
-import pagesHelper.BasePage;
+import utils.SeleniumUtils;
 import utils.LoggerUtil;
 import org.openqa.selenium.By;
 import org.openqa.selenium.WebElement;
 import org.openqa.selenium.support.FindBy;
 
-public class CustomerLoginPage extends BasePage {
+public class CustomerLoginPage extends SeleniumUtils {
 
     @FindBy(id = "userSelect")
     private WebElement customerDropdown;
 
     @FindBy(css = "button[type='submit']")
     private WebElement loginButton;
-
-    public CustomerLoginPage() {
-        super();
-    }
 
     public AccountPage loginAsCustomer(String customerName) {
         LoggerUtil.logStep(CustomerLoginPage.class, "Logging in as customer: " + customerName);

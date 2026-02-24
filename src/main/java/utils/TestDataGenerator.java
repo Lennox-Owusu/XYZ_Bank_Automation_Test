@@ -1,6 +1,5 @@
 package utils;
 
-import models.Customer;
 
 import java.util.Random;
 
@@ -10,15 +9,18 @@ public class TestDataGenerator {
     private static final String[] FIRST_NAMES = {"John", "Jane", "Michael", "Sarah", "David", "Emma"};
     private static final String[] LAST_NAMES = {"Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia"};
 
-    public static Customer generateValidCustomer() {
+    public static String[] generateValidCustomerData() {
         String firstName = FIRST_NAMES[random.nextInt(FIRST_NAMES.length)];
         String lastName = LAST_NAMES[random.nextInt(LAST_NAMES.length)];
         String postalCode = String.format("%05d", random.nextInt(100000));
 
-        Customer customer = new Customer(firstName, lastName, postalCode);
-        LoggerUtil.info(TestDataGenerator.class, "Generated valid customer: " + customer);
-        return customer;
+        return new String[]{firstName, lastName, postalCode};
     }
+
+    public static String generateFullName(String firstName, String lastName) {
+        return firstName + " " + lastName;
+    }
+
 
     public static String generateInvalidNameWithNumbers() {
         return "John123";
