@@ -311,7 +311,7 @@ jobs:
                 "type": "section",
                 "text": {
                   "type": "mrkdwn",
-                  "text": "*❌ Failed Tests:*\n${{ steps.failed_tests.outputs.failed_list }}"
+                  "text": "*❌ Failed Tests:*\n```${{ steps.failed_tests.outputs.failed_list }}```"
                 }
               }
             ]
@@ -319,6 +319,7 @@ jobs:
       env:
         SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+
     
     - name: Send Enhanced Gmail notification
       if: always()
