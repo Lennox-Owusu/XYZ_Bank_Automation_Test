@@ -158,58 +158,23 @@ jobs:
         
         echo "Surefire reports directory found"
         
-        # Method 1: Parse all XML files for failures
-        echo "Method 1: Checking all XML files..."
-        for xml_file in target/surefire-reports/TEST-*.xml; do
-          if [ -f "$xml_file" ]; then
-            echo "Checking file: $xml_file"
-            # Extract test cases with failures or errors
-            FAILED_IN_FILE=$(xmllint --xpath "//testcase[failure or error]/@name" "$xml_file" 2>/dev/null | grep -oP 'name="\K[^"]+' || true)
-            if [ -n "$FAILED_IN_FILE" ]; then
-              while IFS= read -r test_name; do
-                FAILED_TESTS="${FAILED_TESTS}• ${test_name}"$'\n'
-              done <<< "$FAILED_IN_FILE"
-            fi
+        # Extract from TXT file - this is the most reliable for your setup
+        if [ -f target/surefire-reports/TestSuite.txt ]; then
+          echo "Parsing TestSuite.txt for failed tests..."
+          
+          # Extract lines that contain "<<< FAILURE!" and get the test method name
+          FAILED_TESTS=$(grep "<<< FAILURE!" target/surefire-reports/TestSuite.txt | \
+            grep -oP 'tests\.\w+\.\w+\.\K\w+' | \
+            sed 's/^/• /' | \
+            head -20)
+          
+          # If the above doesn't work, try alternative pattern
+          if [ -z "$FAILED_TESTS" ]; then
+            FAILED_TESTS=$(grep "<<< FAILURE!" target/surefire-reports/TestSuite.txt | \
+              awk '{print $1}' | \
+              sed 's/tests\.\w*\.\w*\./• /' | \
+              head -20)
           fi
-        done
-        
-        # Method 2: If xmllint not available, use grep
-        if [ -z "$FAILED_TESTS" ]; then
-          echo "Method 2: Using grep on XML files..."
-          for xml_file in target/surefire-reports/TEST-*.xml; do
-            if [ -f "$xml_file" ]; then
-              # Look for testcase tags that contain failure or error tags
-              grep -oP '<testcase[^>]*name="[^"]*"[^>]*>.*?<(failure|error)' "$xml_file" | \
-                grep -oP 'name="\K[^"]+' | while read -r test_name; do
-                FAILED_TESTS="${FAILED_TESTS}• ${test_name}"$'\n'
-              done
-            fi
-          done
-        fi
-        
-        # Method 3: Check text reports
-        if [ -z "$FAILED_TESTS" ]; then
-          echo "Method 3: Checking text reports..."
-          for txt_file in target/surefire-reports/*.txt; do
-            if [ -f "$txt_file" ]; then
-              echo "Checking file: $txt_file"
-              # Look for lines with test method names followed by FAILED
-              grep -E "test.*FAILED|FAILED.*test" "$txt_file" | while read -r line; do
-                # Extract test name from the line
-                test_name=$(echo "$line" | grep -oP 'test\w+' | head -1)
-                if [ -n "$test_name" ]; then
-                  FAILED_TESTS="${FAILED_TESTS}• ${test_name}"$'\n'
-                fi
-              done
-            fi
-          done
-        fi
-        
-        # Method 4: Simple grep for failure/error tags
-        if [ -z "$FAILED_TESTS" ]; then
-          echo "Method 4: Simple failure detection..."
-          FAILED_TESTS=$(grep -r "<failure\|<error" target/surefire-reports/*.xml 2>/dev/null | \
-            grep -oP 'testcase.*?name="\K[^"]+' | sed 's/^/• /' || true)
         fi
         
         # Output results
@@ -219,8 +184,8 @@ jobs:
         else
           echo "Found failed tests:"
           echo "$FAILED_TESTS"
-          # Remove trailing newline and format for output
-          FAILED_FORMATTED=$(echo "$FAILED_TESTS" | sed -e ':a' -e 'N' -e '$!ba' -e 's/\n/\\n/g')
+          
+          # Format for Slack/Email
           echo "failed_list<<EOF" >> $GITHUB_OUTPUT
           echo "$FAILED_TESTS" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
