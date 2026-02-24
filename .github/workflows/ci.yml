@@ -302,23 +302,29 @@ jobs:
     
     - name: Send failed tests to Slack
       if: always() && steps.test_summary.outputs.failed > 0
-      uses: slackapi/slack-github-action@v1.25.0
-      with:
-        payload: |
-          {
-            "blocks": [
-              {
-                "type": "section",
-                "text": {
-                  "type": "mrkdwn",
-                  "text": "*❌ Failed Tests:*\n```${{ steps.failed_tests.outputs.failed_list }}```"
-                }
-              }
-            ]
-          }
       env:
         SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+        FAILED_TESTS: ${{ steps.failed_tests.outputs.failed_list }}
+      run: |
+        # Escape for JSON
+        ESCAPED_TESTS=$(echo "$FAILED_TESTS" | jq -Rs .)
+        
+        # Send to Slack
+        curl -X POST "$SLACK_WEBHOOK_URL" \
+          -H 'Content-Type: application/json' \
+          -d "{
+            \"blocks\": [
+              {
+                \"type\": \"section\",
+                \"text\": {
+                  \"type\": \"mrkdwn\",
+                  \"text\": \"*❌ Failed Tests:*\n$ESCAPED_TESTS\"
+                }
+              }
+            ]
+          }"
+
 
     
     - name: Send Enhanced Gmail notification
