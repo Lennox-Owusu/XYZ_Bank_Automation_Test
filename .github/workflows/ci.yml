@@ -301,17 +301,27 @@ jobs:
         SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
  
     
+    - name: Format failed tests for notification
+      if: always() && steps.test_summary.outputs.failed > 0
+      id: format_failed
+      run: |
+        # Convert to single line with separators
+        FAILED_LIST='${{ steps.failed_tests.outputs.failed_list }}'
+        FORMATTED=$(echo "$FAILED_LIST" | tr '\n' ',' | sed 's/,/, /g' | sed 's/, $//')
+        echo "formatted=$FORMATTED" >> $GITHUB_OUTPUT
+    
     - name: Send failed tests to Slack
       if: always() && steps.test_summary.outputs.failed > 0
       uses: slackapi/slack-github-action@v1.25.0
       with:
         payload: |
           {
-            "text": "❌ Failed Tests:\n${{ steps.failed_tests.outputs.failed_list }}"
+            "text": "❌ Failed Tests: ${{ steps.format_failed.outputs.formatted }}"
           }
       env:
         SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+
 
 
 
