@@ -302,28 +302,39 @@ jobs:
     
     - name: Send failed tests to Slack
       if: always() && steps.test_summary.outputs.failed > 0
-      env:
-        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-        SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
-        FAILED_TESTS: ${{ steps.failed_tests.outputs.failed_list }}
       run: |
-        # Escape for JSON
-        ESCAPED_TESTS=$(echo "$FAILED_TESTS" | jq -Rs .)
+        # Create a simple text list of failed tests
+        FAILED_TEXT=$(echo "${{ steps.failed_tests.outputs.failed_list }}" | sed 's/$/\\n/g' | tr -d '\n')
+        
+        # Create JSON payload
+        cat > /tmp/slack_payload.json << 'EOF'
+        {
+          "blocks": [
+            {
+              "type": "section",
+              "text": {
+                "type": "mrkdwn",
+                "text": "*❌ Failed Tests:*"
+              }
+            },
+            {
+              "type": "section",
+              "text": {
+                "type": "plain_text",
+                "text": "${{ steps.failed_tests.outputs.failed_list }}"
+              }
+            }
+          ]
+        }
+        EOF
         
         # Send to Slack
-        curl -X POST "$SLACK_WEBHOOK_URL" \
+        curl -X POST ${{ secrets.SLACK_WEBHOOK_URL }} \
           -H 'Content-Type: application/json' \
-          -d "{
-            \"blocks\": [
-              {
-                \"type\": \"section\",
-                \"text\": {
-                  \"type\": \"mrkdwn\",
-                  \"text\": \"*❌ Failed Tests:*\n$ESCAPED_TESTS\"
-                }
-              }
-            ]
-          }"
+          -d @/tmp/slack_payload.json
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
 
 
     
