@@ -130,20 +130,43 @@ jobs:
       run: |
         echo "Extracting failed test details..."
         
-        FAILED_LIST=""
+        FAILED_TESTS=""
         
-        if [ -f target/surefire-reports/TestSuite.txt ]; then
-          FAILED_LIST=$(grep -E "Tests run:|FAILED" target/surefire-reports/TestSuite.txt | grep -A1 "FAILED" | grep -v "^--$" | sed 's/^[[:space:]]*//' | head -20)
+        # Try to find failed tests from XML reports
+        if [ -f target/surefire-reports/TEST-TestSuite.xml ]; then
+          echo "Parsing TEST-TestSuite.xml for failures..."
+          FAILED_TESTS=$(grep -oP '<testcase.*?name="\K[^"]+' target/surefire-reports/TEST-TestSuite.xml | \
+            while read test; do
+              if grep -q "name=\"$test\".*<failure" target/surefire-reports/TEST-TestSuite.xml; then
+                echo "• $test"
+              fi
+            done)
         fi
         
-        if [ -z "$FAILED_LIST" ]; then
-          echo "No failed test details found"
+        # Fallback to text reports
+        if [ -z "$FAILED_TESTS" ] && [ -f target/surefire-reports/TestSuite.txt ]; then
+          echo "Parsing TestSuite.txt for failures..."
+          FAILED_TESTS=$(grep -E "^\s+test.*FAILED" target/surefire-reports/TestSuite.txt | \
+            sed 's/^[[:space:]]*/• /' | head -10)
+        fi
+        
+        # If still empty, check all XML files
+        if [ -z "$FAILED_TESTS" ]; then
+          echo "Checking all XML files..."
+          FAILED_TESTS=$(find target/surefire-reports -name "TEST-*.xml" -exec \
+            grep -l "<failure" {} \; | while read file; do
+              grep -oP '<testcase.*?name="\K[^"]+(?=.*<failure)' "$file" | sed 's/^/• /'
+            done | head -10)
+        fi
+        
+        if [ -z "$FAILED_TESTS" ]; then
           echo "failed_list=No specific failure details available" >> $GITHUB_OUTPUT
         else
-          # Escape for JSON and create simple list
-          FAILED_SIMPLE=$(echo "$FAILED_LIST" | tr '\n' '|' | sed 's/|$//')
-          echo "failed_list=$FAILED_SIMPLE" >> $GITHUB_OUTPUT
-          echo "Found failed tests: $FAILED_SIMPLE"
+          # Format for Slack (newline separated)
+          FAILED_FORMATTED=$(echo "$FAILED_TESTS" | sed ':a;N;$!ba;s/\n/\\n/g')
+          echo "failed_list=$FAILED_FORMATTED" >> $GITHUB_OUTPUT
+          echo "Found failed tests:"
+          echo "$FAILED_TESTS"
         fi
     
     - name: Get environment info
@@ -248,6 +271,26 @@ jobs:
                     "text": "Repository: *${{ github.repository }}* | Run #${{ github.run_number }} | Triggered by: ${{ github.actor }}"
                   }
                 ]
+              }
+            ]
+          }
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+    
+    - name: Send failed tests to Slack
+      if: always() && steps.test_summary.outputs.failed > 0
+      uses: slackapi/slack-github-action@v1.25.0
+      with:
+        payload: |
+          {
+            "blocks": [
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "*❌ Failed Tests:*\n${{ steps.failed_tests.outputs.failed_list }}"
+                }
               }
             ]
           }
@@ -422,6 +465,21 @@ jobs:
                 padding: 15px;
                 margin: 15px 0;
               }
+              .failed-tests {
+                background: #fef2f2;
+                border: 1px solid #ef4444;
+                border-radius: 8px;
+                padding: 15px;
+                margin: 15px 0;
+              }
+              .failed-tests ul {
+                margin: 10px 0;
+                padding-left: 20px;
+              }
+              .failed-tests li {
+                color: #991b1b;
+                margin: 5px 0;
+              }
             </style>
           </head>
           <body>
@@ -462,4 +520,45 @@ jobs:
                   </div>
                   <div class="metric-card">
                     <div class="metric-value skipped">${{ steps.test_summary.outputs.skipped }}</div>
-                    <div class="metric-label">⏭
+                    <div class="metric-label">⏭️ Skipped</div>
+                  </div>
+                </div>
+                
+                ${{ steps.test_summary.outputs.failed > 0 && format('<div class="failed-tests"><div class="section-title">❌ Failed Tests</div><div style="white-space: pre-line;">{0}</div></div>', steps.failed_tests.outputs.failed_list) || '' }}
+                
+                <div class="section-title">🔧 Test Environment</div>
+                <div class="details">
+                  <div class="info-row">
+                    <span class="info-label">Chrome Version</span>
+                    <span class="info-value">${{ steps.env_info.outputs.chrome_version }}</span>
+                  </div>
+                  <div class="info-row">
+                    <span class="info-label">Java Version</span>
+                    <span class="info-value">${{ steps.env_info.outputs.java_version }}</span>
+                  </div>
+                  <div class="info-row">
+                    <span class="info-label">Branch</span>
+                    <span class="info-value">${{ github.ref_name }}</span>
+                  </div>
+                  <div class="info-row">
+                    <span class="info-label">Commit</span>
+                    <span class="info-value">${{ github.sha }}</span>
+                  </div>
+                  <div class="info-row">
+                    <span class="info-label">Triggered By</span>
+                    <span class="info-value">${{ github.actor }}</span>
+                  </div>
+                </div>
+                
+                <div class="button-container">
+                  <a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" class="button">View Full Report</a>
+                </div>
+                
+                <div class="footer">
+                  <p>XYZ Bank Test Automation | Run #${{ github.run_number }}</p>
+                  <p>Repository: ${{ github.repository }}</p>
+                </div>
+              </div>
+            </div>
+          </body>
+          </html>
