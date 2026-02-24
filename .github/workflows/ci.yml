@@ -39,6 +39,23 @@ jobs:
       run: mvn clean test
       continue-on-error: true
     
+    - name: Debug - List test report files
+      if: always()
+      run: |
+        echo "=== Checking surefire-reports directory ==="
+        if [ -d target/surefire-reports ]; then
+          echo "Directory exists. Contents:"
+          ls -la target/surefire-reports/
+          echo ""
+          echo "=== XML files content preview ==="
+          find target/surefire-reports -name "*.xml" -exec echo "File: {}" \; -exec head -20 {} \; -exec echo "" \;
+          echo ""
+          echo "=== TXT files content preview ==="
+          find target/surefire-reports -name "*.txt" -exec echo "File: {}" \; -exec cat {} \; -exec echo "" \;
+        else
+          echo "ERROR: target/surefire-reports directory does not exist!"
+        fi
+    
     - name: Calculate execution time
       if: always()
       id: execution_time
@@ -128,45 +145,85 @@ jobs:
       if: always()
       id: failed_tests
       run: |
-        echo "Extracting failed test details..."
+        echo "=== Extracting failed test details ==="
         
         FAILED_TESTS=""
         
-        # Try to find failed tests from XML reports
-        if [ -f target/surefire-reports/TEST-TestSuite.xml ]; then
-          echo "Parsing TEST-TestSuite.xml for failures..."
-          FAILED_TESTS=$(grep -oP '<testcase.*?name="\K[^"]+' target/surefire-reports/TEST-TestSuite.xml | \
-            while read test; do
-              if grep -q "name=\"$test\".*<failure" target/surefire-reports/TEST-TestSuite.xml; then
-                echo "• $test"
-              fi
-            done)
+        # Check if surefire-reports directory exists
+        if [ ! -d target/surefire-reports ]; then
+          echo "ERROR: target/surefire-reports directory not found"
+          echo "failed_list=Test reports directory not found" >> $GITHUB_OUTPUT
+          exit 0
         fi
         
-        # Fallback to text reports
-        if [ -z "$FAILED_TESTS" ] && [ -f target/surefire-reports/TestSuite.txt ]; then
-          echo "Parsing TestSuite.txt for failures..."
-          FAILED_TESTS=$(grep -E "^\s+test.*FAILED" target/surefire-reports/TestSuite.txt | \
-            sed 's/^[[:space:]]*/• /' | head -10)
-        fi
+        echo "Surefire reports directory found"
         
-        # If still empty, check all XML files
+        # Method 1: Parse all XML files for failures
+        echo "Method 1: Checking all XML files..."
+        for xml_file in target/surefire-reports/TEST-*.xml; do
+          if [ -f "$xml_file" ]; then
+            echo "Checking file: $xml_file"
+            # Extract test cases with failures or errors
+            FAILED_IN_FILE=$(xmllint --xpath "//testcase[failure or error]/@name" "$xml_file" 2>/dev/null | grep -oP 'name="\K[^"]+' || true)
+            if [ -n "$FAILED_IN_FILE" ]; then
+              while IFS= read -r test_name; do
+                FAILED_TESTS="${FAILED_TESTS}• ${test_name}"$'\n'
+              done <<< "$FAILED_IN_FILE"
+            fi
+          fi
+        done
+        
+        # Method 2: If xmllint not available, use grep
         if [ -z "$FAILED_TESTS" ]; then
-          echo "Checking all XML files..."
-          FAILED_TESTS=$(find target/surefire-reports -name "TEST-*.xml" -exec \
-            grep -l "<failure" {} \; | while read file; do
-              grep -oP '<testcase.*?name="\K[^"]+(?=.*<failure)' "$file" | sed 's/^/• /'
-            done | head -10)
+          echo "Method 2: Using grep on XML files..."
+          for xml_file in target/surefire-reports/TEST-*.xml; do
+            if [ -f "$xml_file" ]; then
+              # Look for testcase tags that contain failure or error tags
+              grep -oP '<testcase[^>]*name="[^"]*"[^>]*>.*?<(failure|error)' "$xml_file" | \
+                grep -oP 'name="\K[^"]+' | while read -r test_name; do
+                FAILED_TESTS="${FAILED_TESTS}• ${test_name}"$'\n'
+              done
+            fi
+          done
         fi
         
+        # Method 3: Check text reports
         if [ -z "$FAILED_TESTS" ]; then
+          echo "Method 3: Checking text reports..."
+          for txt_file in target/surefire-reports/*.txt; do
+            if [ -f "$txt_file" ]; then
+              echo "Checking file: $txt_file"
+              # Look for lines with test method names followed by FAILED
+              grep -E "test.*FAILED|FAILED.*test" "$txt_file" | while read -r line; do
+                # Extract test name from the line
+                test_name=$(echo "$line" | grep -oP 'test\w+' | head -1)
+                if [ -n "$test_name" ]; then
+                  FAILED_TESTS="${FAILED_TESTS}• ${test_name}"$'\n'
+                fi
+              done
+            fi
+          done
+        fi
+        
+        # Method 4: Simple grep for failure/error tags
+        if [ -z "$FAILED_TESTS" ]; then
+          echo "Method 4: Simple failure detection..."
+          FAILED_TESTS=$(grep -r "<failure\|<error" target/surefire-reports/*.xml 2>/dev/null | \
+            grep -oP 'testcase.*?name="\K[^"]+' | sed 's/^/• /' || true)
+        fi
+        
+        # Output results
+        if [ -z "$FAILED_TESTS" ] || [ "$FAILED_TESTS" = "" ]; then
+          echo "No failed tests found in reports"
           echo "failed_list=No specific failure details available" >> $GITHUB_OUTPUT
         else
-          # Format for Slack (newline separated)
-          FAILED_FORMATTED=$(echo "$FAILED_TESTS" | sed ':a;N;$!ba;s/\n/\\n/g')
-          echo "failed_list=$FAILED_FORMATTED" >> $GITHUB_OUTPUT
           echo "Found failed tests:"
           echo "$FAILED_TESTS"
+          # Remove trailing newline and format for output
+          FAILED_FORMATTED=$(echo "$FAILED_TESTS" | sed -e ':a' -e 'N' -e '$!ba' -e 's/\n/\\n/g')
+          echo "failed_list<<EOF" >> $GITHUB_OUTPUT
+          echo "$FAILED_TESTS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
         fi
     
     - name: Get environment info
