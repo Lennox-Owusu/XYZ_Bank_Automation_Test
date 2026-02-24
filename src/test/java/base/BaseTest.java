@@ -32,19 +32,19 @@ public class BaseTest {
     public void tearDown() {
         LoggerUtil.info(BaseTest.class, "========== TEARDOWN STARTED ==========");
 
-        takeScreenshot("Final State");
+        takeScreenshot();
 
         WebDriverFactory.quitDriver();
 
         LoggerUtil.info(BaseTest.class, "========== TEARDOWN COMPLETED ==========");
     }
 
-    protected void takeScreenshot(String screenshotName) {
+    protected void takeScreenshot() {
         try {
             byte[] screenshot = ((TakesScreenshot) WebDriverFactory.getDriver())
                     .getScreenshotAs(OutputType.BYTES);
-            Allure.addAttachment(screenshotName, new ByteArrayInputStream(screenshot));
-            LoggerUtil.info(BaseTest.class, "Screenshot captured: " + screenshotName);
+            Allure.addAttachment("Final State", new ByteArrayInputStream(screenshot));
+            LoggerUtil.info(BaseTest.class, "Screenshot captured: " + "Final State");
         } catch (Exception e) {
             LoggerUtil.error(BaseTest.class, "Failed to capture screenshot", e);
         }

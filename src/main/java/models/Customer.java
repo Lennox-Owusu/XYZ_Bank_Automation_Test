@@ -17,7 +17,7 @@ public class Customer {
     }
 
     public void setFirstName(String firstName) {
-        if (!isValidName(firstName)) {
+        if (isValidName(firstName)) {
             throw new IllegalArgumentException("First name must contain only alphabetic characters");
         }
         this.firstName = firstName;
@@ -28,7 +28,7 @@ public class Customer {
     }
 
     public void setLastName(String lastName) {
-        if (!isValidName(lastName)) {
+        if (isValidName(lastName)) {
             throw new IllegalArgumentException("Last name must contain only alphabetic characters");
         }
         this.lastName = lastName;
@@ -50,7 +50,7 @@ public class Customer {
     }
 
     private boolean isValidName(String name) {
-        return name != null && name.matches("^[a-zA-Z]+$");
+        return name == null || !name.matches("^[a-zA-Z]+$");
     }
 
     private boolean isValidPostalCode(String postalCode) {

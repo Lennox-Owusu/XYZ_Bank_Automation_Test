@@ -1,6 +1,7 @@
 package pages;
 
 import models.Customer;
+import pagesHelper.BasePage;
 import utils.LoggerUtil;
 import org.openqa.selenium.By;
 import org.openqa.selenium.WebElement;
@@ -99,7 +100,11 @@ public class ManagerPage extends BasePage {
         }
 
         click(addCustomerSubmitButton, "Add Customer Submit Button");
+
+        // Handle alert that appears after submission
+        handleAlert();
     }
+
 
     public void openAccount(String customerName, String currency) {
         LoggerUtil.logStep(ManagerPage.class, "Opening account for: " + customerName);
@@ -165,11 +170,18 @@ public class ManagerPage extends BasePage {
     }
 
     public int getCustomerCount() {
+        // Handle any pending alerts first
+        handleAlert();
+
+        waitHelper.waitForSeconds(1);
         clickCustomers();
+
+        waitHelper.waitForSeconds(1);
         int count = customerRows.size();
         LoggerUtil.debug(ManagerPage.class, "Total customers: " + count);
         return count;
     }
+
 
     private void handleAlert() {
         try {

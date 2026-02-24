@@ -1,6 +1,7 @@
 package pages;
 
 import config.ConfigReader;
+import pagesHelper.BasePage;
 import utils.LoggerUtil;
 import org.openqa.selenium.WebElement;
 import org.openqa.selenium.support.FindBy;
@@ -40,8 +41,4 @@ public class HomePage extends BasePage {
         click(homeButton, "Home Button");
     }
 
-    public boolean isHomePageDisplayed() {
-        return isDisplayed(bankManagerLoginButton, "Bank Manager Login Button") &&
-                isDisplayed(customerLoginButton, "Customer Login Button");
-    }
 }

@@ -1,4 +1,4 @@
-package pages;
+package pagesHelper;
 
 import config.WebDriverFactory;
 import utils.LoggerUtil;

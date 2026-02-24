@@ -1,5 +1,6 @@
 package pages;
 
+import pagesHelper.BasePage;
 import utils.LoggerUtil;
 import org.openqa.selenium.By;
 import org.openqa.selenium.WebElement;
