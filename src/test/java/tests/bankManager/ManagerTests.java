@@ -1,10 +1,10 @@
-package tests;
+package tests.bankManager;
 
 import base.BaseTest;
 import io.qameta.allure.*;
 import org.testng.Assert;
 import org.testng.annotations.Test;
-import pages.ManagerPage;
+import pages.manager.ManagerPage;
 import utils.LoggerUtil;
 import utils.TestDataGenerator;
 

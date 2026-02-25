@@ -16,9 +16,6 @@ public class WebDriverFactory {
 
     private static final ThreadLocal<WebDriver> driver = new ThreadLocal<>();
 
-    private WebDriverFactory() {
-    }
-
     public static WebDriver getDriver() {
         if (driver.get() == null) {
             driver.set(createDriver());

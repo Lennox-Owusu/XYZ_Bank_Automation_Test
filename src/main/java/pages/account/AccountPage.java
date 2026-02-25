@@ -1,6 +1,5 @@
-package pages;
+package pages.account;
 
-import org.openqa.selenium.JavascriptExecutor;
 import utils.SeleniumUtils;
 import utils.LoggerUtil;
 import org.openqa.selenium.WebElement;
@@ -18,9 +17,6 @@ public class AccountPage extends SeleniumUtils {
 
     @FindBy(css = "button[ng-click='withdrawl()']")
     private WebElement withdrawalButton;
-
-    @FindBy(css = "button[ng-click='logout()']")
-    private WebElement logoutButton;
 
     @FindBy(css = "input[ng-model='amount']")
     private WebElement amountInput;
@@ -60,24 +56,6 @@ public class AccountPage extends SeleniumUtils {
         click(withdrawalButton, "Withdrawal Button");
     }
 
-    public void logout() {
-        try {
-            // Scroll to logout button
-            ((JavascriptExecutor) driver).executeScript("arguments[0].scrollIntoView(true);", logoutButton);
-            waitForSeconds(1);
-
-            // Try clicking normally
-            waitForElementToBeClickable(logoutButton);
-            click(logoutButton, "Logout Button");
-
-        } catch (Exception e) {
-            // If normal click fails, use JavaScript click
-            LoggerUtil.info(AccountPage.class, "Normal click failed, trying JavaScript click");
-            ((JavascriptExecutor) driver).executeScript("arguments[0].click();", logoutButton);
-        }
-
-        LoggerUtil.info(AccountPage.class, "User logged out successfully");
-    }
 
 
     public void deposit(int amount) {

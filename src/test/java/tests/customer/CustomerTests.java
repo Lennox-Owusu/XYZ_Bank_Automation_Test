@@ -1,13 +1,13 @@
-package tests;
+package tests.customer;
 
 import base.BaseTest;
 import io.qameta.allure.*;
 import org.testng.Assert;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
-import pages.AccountPage;
-import pages.CustomerLoginPage;
-import pages.ManagerPage;
+import pages.account.AccountPage;
+import pages.customer.CustomerLoginPage;
+import pages.manager.ManagerPage;
 import utils.LoggerUtil;
 import utils.TestDataGenerator;
 

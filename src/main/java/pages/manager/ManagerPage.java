@@ -1,4 +1,4 @@
-package pages;
+package pages.manager;
 
 import utils.SeleniumUtils;
 import utils.LoggerUtil;

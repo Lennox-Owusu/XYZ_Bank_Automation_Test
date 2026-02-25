@@ -1,6 +1,8 @@
-package pages;
+package pages.home;
 
 import config.ConfigReader;
+import pages.customer.CustomerLoginPage;
+import pages.manager.ManagerPage;
 import utils.SeleniumUtils;
 import utils.LoggerUtil;
 import org.openqa.selenium.WebElement;
@@ -16,10 +18,6 @@ public class HomePage extends SeleniumUtils {
 
     @FindBy(css = "button[ng-click='home()']")
     private WebElement homeButton;
-
-    public HomePage() {
-        super();
-    }
 
     public void navigateToApp() {
         String url = ConfigReader.getAppUrl();

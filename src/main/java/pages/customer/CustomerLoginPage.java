@@ -1,5 +1,6 @@
-package pages;
+package pages.customer;
 
+import pages.account.AccountPage;
 import utils.SeleniumUtils;
 import utils.LoggerUtil;
 import org.openqa.selenium.By;
