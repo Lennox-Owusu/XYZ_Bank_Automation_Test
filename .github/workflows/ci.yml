@@ -12,15 +12,16 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+
       - name: Checkout code
         uses: actions/checkout@v4
 
       # ------------------------------------------------------------
-      # (Optional) Build Docker image for running tests in container
-      # Enable these if you want to run inside Docker later.
+      # OPTIONAL: Build Docker image for running tests
+      # (Keep this to maintain your original CI structure)
       # ------------------------------------------------------------
-      # - name: Build Docker image
-      #   run: docker build -t api-tests:latest .
+      - name: Build Docker image (optional)
+        run: docker build -t api-tests:latest .
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -35,19 +36,17 @@ jobs:
         run: echo "start_time=$(date +%s)" >> $GITHUB_OUTPUT
 
       # ------------------------------------------------------------
-      # Run tests on the host (simple & fast for API testing)
-      # If you prefer Docker runtime, comment this and enable the
-      # docker run block below.
+      # Run tests normally (host machine)
       # ------------------------------------------------------------
-      - name: Run tests
+      - name: Run API tests (REST Assured)
         id: tests
         run: mvn -B clean test
         continue-on-error: true
 
       # ------------------------------------------------------------
-      # (Optional) Run tests INSIDE the Docker image (enable if needed)
+      # OPTIONAL: Run tests inside Docker instead
       # ------------------------------------------------------------
-      # - name: Run tests inside Docker
+      # - name: Run API tests inside Docker
       #   id: tests
       #   run: docker run --rm -v $PWD:/work -w /work api-tests:latest mvn -B clean test
       #   continue-on-error: true
@@ -71,7 +70,7 @@ jobs:
         run: mvn -B allure:report
         continue-on-error: true
 
-      - name: Upload Allure HTML report (static site)
+      - name: Upload Allure HTML report
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -85,22 +84,16 @@ jobs:
           name: allure-results
           path: target/allure-results
 
-      # Publish test results summary (aggregates all surefire XMLs)
-      - name: Publish unit test results
-        if: always()
-        uses: EnricoMi/publish-unit-test-result-action@v2
-        with:
-          files: |
-            target/surefire-reports/*.xml
-
-      # Aggregate totals and status from all surefire XMLs
+      # ------------------------------------------------------------
+      # Aggregate Surefire XML results (for ALL endpoints)
+      # ------------------------------------------------------------
       - name: Compute test summary
         if: always()
         id: test_summary
         shell: bash
         run: |
           shopt -s nullglob
-          files=(target/surefire-reports/TEST-*.xml target/surefire-reports/*.xml)
+          files=(target/surefire-reports/*.xml)
           TOTAL=0; FAIL=0; ERR=0; SKIP=0
 
           for f in "${files[@]}"; do
@@ -110,25 +103,17 @@ jobs:
               f1=$(echo "$line" | sed -n 's/.*failures="\([0-9]*\)".*/\1/p')
               e1=$(echo "$line" | sed -n 's/.*errors="\([0-9]*\)".*/\1/p')
               s1=$(echo "$line" | sed -n 's/.*skipped="\([0-9]*\)".*/\1/p')
-              TOTAL=$((TOTAL + ${t:-0}))
-              FAIL=$((FAIL + ${f1:-0}))
-              ERR=$((ERR + ${e1:-0}))
-              SKIP=$((SKIP + ${s1:-0}))
+              TOTAL=$((TOTAL + t))
+              FAIL=$((FAIL + f1))
+              ERR=$((ERR + e1))
+              SKIP=$((SKIP + s1))
             fi
           done
 
           PASS=$((TOTAL - FAIL - ERR - SKIP))
-          if [ "$TOTAL" -gt 0 ]; then
-            PASS_RATE=$(( 100 * PASS / TOTAL ))
-          else
-            PASS_RATE=0
-          fi
+          PASS_RATE=$(( TOTAL > 0 ? (PASS * 100 / TOTAL) : 0 ))
 
-          if [ $((FAIL + ERR)) -gt 0 ]; then
-            STATUS="FAILED"
-          else
-            STATUS="PASSED"
-          fi
+          if [ $((FAIL + ERR)) -gt 0 ]; then STATUS="FAILED"; else STATUS="PASSED"; fi
 
           echo "total=$TOTAL" >> $GITHUB_OUTPUT
           echo "passed=$PASS" >> $GITHUB_OUTPUT
@@ -138,34 +123,98 @@ jobs:
           echo "pass_rate=$PASS_RATE" >> $GITHUB_OUTPUT
           echo "status=$STATUS" >> $GITHUB_OUTPUT
 
-      # Build a concise failed tests list
+      # ------------------------------------------------------------
+      # Collect list of failed tests (clean, readable)
+      # ------------------------------------------------------------
       - name: Collect failed tests list
         if: always()
         id: failed_tests
         shell: bash
         run: |
           shopt -s nullglob
-          files=(target/surefire-reports/TEST-*.xml target/surefire-reports/*.xml)
           OUT=""
-          for f in "${files[@]}"; do
-            # naive parse: list testcases that contain failure or error tags on same line block
-            # for more robust parsing, use xmlstarlet or a junit parser action
-            while IFS= read -r tc; do
-              CLASS=$(echo "$tc" | sed -n 's/.*classname="\([^"]*\)".*/\1/p')
-              NAME=$(echo "$tc"  | sed -n 's/.*name="\([^"]*\)".*/\1/p')
-              if echo "$tc" | grep -qE "(<failure|<error)"; then
-                OUT+="$CLASS#$NAME\n"
-              fi
-            done < <(grep -o '<testcase[^>]*/\?>\|<testcase[^>]*>.*</testcase>' "$f" || true)
+          for f in target/surefire-reports/*.xml; do
+            while IFS= read -r line; do
+              CLASS=$(echo "$line" | sed -n 's/.*classname="\([^"]*\)".*/\1/p')
+              NAME=$(echo "$line" | sed -n 's/.*name="\([^"]*\)".*/\1/p')
+              OUT+="$CLASS#$NAME\n"
+            done < <(grep -E "<testcase" "$f" | grep -E "failure|error" || true)
           done
-          if [ -z "$OUT" ]; then OUT="(no failed tests)"; fi
+
+          [ -z "$OUT" ] && OUT="(no failed tests)"
+
           OUT_ESCAPED=$(printf "%s" "$OUT" | sed ':a;N;$!ba;s/\n/\\n/g')
           echo "failed_list=$OUT_ESCAPED" >> $GITHUB_OUTPUT
 
-      # Capture environment info (useful context in summary)
+      # ------------------------------------------------------------
+      # Environment info (Java version etc.)
+      # ------------------------------------------------------------
       - name: Capture environment info
         if: always()
         id: env_info
         shell: bash
         run: |
-          JAVA=$(java -version 2>&1 | head -
+          JAVA=$(java -version 2>&1 | head -n1)
+          echo "java_version=$JAVA" >> $GITHUB_OUTPUT
+
+      # ------------------------------------------------------------
+      # Beautiful GitHub Job Summary (Markdown+HTML)
+      # ------------------------------------------------------------
+      - name: Job Summary
+        if: always()
+        env:
+          STATUS: ${{ steps.test_summary.outputs.status }}
+          PASS_RATE: ${{ steps.test_summary.outputs.pass_rate }}
+          TOTAL: ${{ steps.test_summary.outputs.total }}
+          PASSED: ${{ steps.test_summary.outputs.passed }}
+          FAILED: ${{ steps.test_summary.outputs.failed }}
+          SKIPPED: ${{ steps.test_summary.outputs.skipped }}
+          DURATION: ${{ steps.execution_time.outputs.duration_formatted }}
+          FAILED_LIST: ${{ steps.failed_tests.outputs.failed_list }}
+          JAVA: ${{ steps.env_info.outputs.java_version }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          BRANCH: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+          ACTOR: ${{ github.actor }}
+          REPO: ${{ github.repository }}
+        run: |
+          echo "## 🧪 API Test Summary — ${STATUS}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Repository:** \`${REPO}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch:** \`${BRANCH}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit:** \`${SHA}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Actor:** \`${ACTOR}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Duration:** **${DURATION}**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "| Total | Passed | Failed | Skipped | Pass rate |" >> $GITHUB_STEP_SUMMARY
+          echo "|------:|-------:|--------:|---------:|-----------:|" >> $GITHUB_STEP_SUMMARY
+          echo "| ${TOTAL} | ${PASSED} | ${FAILED} | ${SKIPPED} | ${PASS_RATE}% |" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${FAILED}" -gt 0 ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### ❌ Failed Tests" >> $GITHUB_STEP_SUMMARY
+            printf "%b\n" "${FAILED_LIST//\\n/  \n}" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔧 Environment" >> $GITHUB_STEP_SUMMARY
+          echo "- Java: \`${JAVA}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Workflow Run: ${RUN_URL}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "> Download the **Allure Report** from artifacts to view full HTML details." >> $GITHUB_STEP_SUMMARY
+
+      # ------------------------------------------------------------
+      # Fail the pipeline if tests failed
+      # ------------------------------------------------------------
+      - name: Fail job if tests failed
+        if: always()
+        run: |
+          FAIL=${{ steps.test_summary.outputs.failed }}
+          ERR=${{ steps.test_summary.outputs.errors }}
+          TOTAL=${{ steps.test_summary.outputs.total }}
+
+          if [ $((FAIL + ERR)) -gt 0 ]; then
+            echo "❌ Tests failed: $((FAIL + ERR)) of ${TOTAL}"
+            exit 1
+          fi
